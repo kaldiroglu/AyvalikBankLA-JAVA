@@ -1,0 +1,3 @@
+INSERT INTO settings (key, value)
+VALUES ('TRANSFER_FEE_PERCENT', '1.0')
+ON CONFLICT (key) DO NOTHING;
