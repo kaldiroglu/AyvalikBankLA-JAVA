@@ -1,0 +1,10 @@
+target/
+.DS_Store
+*.class
+*.jar
+.idea/
+*.iml
+.vscode/
+.claude/
+Prompt.txt
+docs/superpowers/
