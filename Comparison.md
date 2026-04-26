@@ -242,3 +242,211 @@ The two projects share the same use cases, but each renders new behavior in its 
 | **JaCoCo on Java 25 mocks** | 0.8.12 crashes on Mockito-generated classes for class-file major-v69 → bumped to 0.8.13 | Same — bumped to 0.8.13 as part of the tier feature |
 
 The pattern across all of these: behavior that lives **on the entity** in HA1 lives **in the fat service** in LA1. The REST surface (endpoints, request/response DTOs) and persistence schema are identical; the architectural realization is mirror-opposite.
+
+---
+
+## Production Class Inventory
+
+Side-by-side, layer by layer. **HA1 has 95 production classes; LA1 has 47.** The 2× ratio reflects HA1's ports + adapters + mappers + value-object records, none of which exist in LA1.
+
+### Domain entities
+
+| Concern | HA1 | LA1 |
+|---|---|---|
+| Account aggregate root | `domain/model/account/Account.java` (sealed abstract) | `model/Account.java` (anemic @Entity, single class) |
+| Checking account | `domain/model/account/CheckingAccount.java` (final subclass with overdraft logic) | — (`type=CHECKING` column on `Account` + branches in `AccountService`) |
+| Savings account | `domain/model/account/SavingsAccount.java` (final subclass with `accrueInterest`) | — (`type=SAVINGS` column + branches in `AccountService`) |
+| Time deposit | `domain/model/account/TimeDepositAccount.java` (final subclass with `mature`) | — (`type=TIME_DEPOSIT` column + branches in `AccountService`) |
+| Transaction | `domain/model/account/Transaction.java` (rich entity) | `model/Transaction.java` (anemic @Entity) |
+| Customer | `domain/model/customer/Customer.java` (rich entity with `changePassword`, `changeTier`) | `model/Customer.java` (anemic @Entity) |
+| Password history | (held inline on `Customer` as `List<Password>`) | `model/PasswordHistory.java` (separate @Entity with @ManyToOne back-ref) |
+| Settings | (no domain entity; abstracted behind `SettingsRepositoryPort`) | `model/Settings.java` (anemic @Entity) |
+
+### Domain value objects (HA1) vs primitives (LA1)
+
+| Concept | HA1 | LA1 |
+|---|---|---|
+| Money | `domain/model/account/Money.java` (record with arithmetic + currency-mismatch guard) | raw `BigDecimal` + raw `Currency` enum at every call site |
+| Account ID | `domain/model/account/AccountId.java` (record wrapping `UUID`) | raw `UUID` |
+| Customer ID | `domain/model/customer/CustomerId.java` (record wrapping `UUID`) | raw `UUID` |
+| Transaction ID | `domain/model/account/TransactionId.java` (record wrapping `UUID`) | raw `UUID` |
+| Password | `domain/model/customer/Password.java` (record wrapping the BCrypt hash) | raw `String` |
+
+### Domain enums
+
+| Enum | HA1 | LA1 |
+|---|---|---|
+| AccountStatus | `domain/model/account/AccountStatus.java` | `model/AccountStatus.java` |
+| AccountType | `domain/model/account/AccountType.java` | `model/AccountType.java` |
+| Currency | `domain/model/account/Currency.java` | `model/Currency.java` |
+| TransactionType | `domain/model/account/TransactionType.java` (with `INTEREST`) | `model/TransactionType.java` (with `INTEREST`) |
+| CustomerTier | `domain/model/customer/CustomerTier.java` | `model/CustomerTier.java` |
+
+### State pattern (HA1 only)
+
+HA1 has 4 extra classes for the State pattern that have no LA1 equivalent:
+
+| HA1 class | Role |
+|---|---|
+| `domain/model/account/AccountState.java` | Sealed interface with `freeze()`, `unfreeze()`, `close()`, `requireOperable()`, `isTerminal()` |
+| `domain/model/account/ActiveState.java` | Singleton — allows operations, transitions to FrozenState/ClosedState |
+| `domain/model/account/FrozenState.java` | Singleton — rejects ops with "Account is frozen", transitions to ActiveState/ClosedState |
+| `domain/model/account/ClosedState.java` | Terminal singleton — rejects all transitions and operations |
+
+In LA1, all of this collapses into `if (status != ACTIVE) throw new AccountNotOperableException(...)` lines scattered across `AccountService` methods.
+
+### Domain services
+
+| Service | HA1 | LA1 |
+|---|---|---|
+| Transfer fee + limit calculations | `domain/service/account/TransferDomainService.java` | `service/TransferService.java` |
+| Password validation | `domain/service/customer/PasswordValidationService.java` | `service/PasswordValidationService.java` |
+
+### Ports (HA1 only — 19 interfaces)
+
+LA1 has zero. HA1 declares the application's vocabulary as interfaces:
+
+**Inbound (use cases) — 15 in account/, 5 in customer/:**
+- Account: `OpenCheckingAccountUseCase`, `OpenSavingsAccountUseCase`, `OpenTimeDepositAccountUseCase`, `DepositMoneyUseCase`, `WithdrawMoneyUseCase`, `TransferMoneyUseCase`, `GetBalanceUseCase`, `GetTransactionsUseCase`, `ListAccountsUseCase`, `FreezeAccountUseCase`, `UnfreezeAccountUseCase`, `CloseAccountUseCase`, `AccrueInterestUseCase`, `MatureTimeDepositUseCase`, `SetTransferFeeUseCase`
+- Customer: `CreateCustomerUseCase`, `DeleteCustomerUseCase`, `ListCustomersUseCase`, `ChangePasswordUseCase`, `ChangeCustomerTierUseCase`
+
+**Outbound — 5:**
+- Account: `AccountRepositoryPort`, `TransactionRepositoryPort`, `SettingsRepositoryPort`
+- Customer: `CustomerRepositoryPort`, `PasswordHasherPort`
+
+In LA1, controllers depend on `AccountService`/`CustomerService` directly; the services depend on `AccountRepository`/`CustomerRepository`/`TransactionRepository`/`SettingsRepository` (Spring Data interfaces) directly.
+
+### Application/service layer
+
+| Concern | HA1 | LA1 |
+|---|---|---|
+| Account orchestration | `application/service/AccountApplicationService.java` (implements 14 use-case interfaces) | `service/AccountService.java` (~290 lines, fat) |
+| Customer orchestration | `application/service/CustomerApplicationService.java` (implements 5 use-case interfaces) | `service/CustomerService.java` |
+
+Notable: HA1's services are bound by their `implements` clauses — adding a new method without a matching port is impossible. LA1's services have no such constraint; methods accumulate freely.
+
+### Persistence layer
+
+| Concern | HA1 | LA1 |
+|---|---|---|
+| JPA entities | 5 separate `*JpaEntity` classes (Account, Customer, Transaction, Settings, PasswordHistory) | The domain `@Entity` classes ARE the JPA entities |
+| Spring Data interfaces | 4 `*JpaRepository` interfaces under `adapter/out/persistence/repository/` | 4 repository interfaces under `repository/` (same role, different package) |
+| Adapter implementations | 4 `*PersistenceAdapter` classes implementing the outbound ports | — (services use Spring Data directly) |
+| Mappers | 3 `*PersistenceMapper` classes (Account, Customer, Transaction) — switch on `AccountType` to construct the right subclass | — (no mapping needed — the entity is the model) |
+
+### Web layer
+
+Both projects have similar shapes here, but the count differs:
+
+| Concern | HA1 | LA1 |
+|---|---|---|
+| Controllers | 3 (`AdminController`, `CustomerController`, `AccountController`) | 3 (same names) |
+| Request DTOs | 11 records | 11 records |
+| Response DTOs | 4 records (`AccountResponse` is polymorphic with nullable type-specific fields) | 4 records (same shape) |
+| Exception handler | `GlobalExceptionHandler.java` — 10 mappings including `InvalidAccountOperationException`, `LimitExceededException` | `GlobalExceptionHandler.java` — 10 mappings (no `InvalidAccountOperationException` since LA1 throws domain-specific exceptions directly) |
+
+### Application exceptions
+
+| Exception | HA1 | LA1 |
+|---|---|---|
+| AccountNotFoundException | ✓ | ✓ |
+| AccountNotOperableException | ✓ | ✓ |
+| CustomerNotFoundException | ✓ | ✓ |
+| InsufficientFundsException | ✓ | ✓ |
+| InvalidAccountOperationException | ✓ (wraps domain `IllegalStateException` from operations on the wrong account type) | — (LA1 uses `AccountNotOperableException` for these) |
+| InvalidPasswordException | ✓ | ✓ |
+| LimitExceededException | ✓ | ✓ |
+| PasswordReusedException | ✓ | ✓ |
+| UnauthorizedAccessException | ✓ | ✓ |
+
+### Configuration / infrastructure
+
+| Concern | HA1 | LA1 |
+|---|---|---|
+| Security | `config/SecurityConfig.java`, `config/BankUserDetailsService.java` | identical — same files |
+| Admin seeder | `config/AdminDataInitializer.java` | identical — same file |
+| Password hasher adapter | `adapter/out/security/BCryptPasswordHasherAdapter.java` (implements `PasswordHasherPort`) | — (LA1 injects Spring Security's `PasswordEncoder` directly into `CustomerService`) |
+
+### Counts
+
+| Layer / concern | HA1 | LA1 |
+|---|---:|---:|
+| Domain entities (rich/anemic) | 6 | 5 |
+| Domain value objects | 5 | 0 |
+| Domain enums | 5 | 5 |
+| State-pattern classes | 4 | 0 |
+| Domain services | 2 | 2 |
+| Inbound ports (use cases) | 19 | 0 |
+| Outbound ports | 5 | 0 |
+| Application services | 2 | 2 (plus 2 utility services that LA1 calls "service" but HA1 puts under domain) |
+| JPA entities | 5 | (entities are the JPA entities) |
+| Persistence adapters | 4 | 0 |
+| Persistence mappers | 3 | 0 |
+| Spring Data interfaces | 4 | 4 |
+| Controllers | 3 | 3 |
+| Request DTOs | 11 | 11 |
+| Response DTOs | 4 | 4 |
+| Exceptions | 9 | 8 |
+| Config | 3 | 3 |
+| Security adapter | 1 | 0 (Spring `PasswordEncoder` injected directly) |
+| **Total production .java files** | **~95** | **~47** |
+
+The 2× ratio is paid as boilerplate in HA1 and saved as boilerplate in LA1 — at the cost of LA1's services growing wide and each new feature mutating the same handful of classes.
+
+---
+
+## Test Class Inventory
+
+**HA1: 15 test classes / 176 tests. LA1: 11 test classes / 119 tests.** HA1 tests more because the rich domain has its own pure-unit test surface that LA1 cannot have (you can't unit-test an anemic entity meaningfully — it's just getters and setters).
+
+### Side-by-side per layer
+
+| Layer | HA1 test classes | LA1 test classes |
+|---|---|---|
+| **Domain entity** | `AccountTest` (21), `CheckingAccountTest` (4), `SavingsAccountTest` (7), `TimeDepositAccountTest` (9), `CustomerTest` (6) — 47 tests on rich-entity behavior with no mocks, no Spring | — (anemic entities have no behavior to test) |
+| **Domain state pattern** | `AccountStateTest` (20) — every state's transition table + singleton invariant | — (no State pattern in LA1) |
+| **Domain value objects** | `MoneyTest` (9) — arithmetic, negative balances, currency-mismatch guard, zero, negate | — (no value objects in LA1) |
+| **Domain enums (policy data)** | `CustomerTierTest` (3) — fee multiplier and caps per tier | — (LA1 tests tier policy indirectly through `TransferServiceTest`) |
+| **Domain services** | `TransferDomainServiceTest` (9), `PasswordValidationServiceTest` (8) — pure JUnit | `TransferServiceTest` (10), `PasswordValidationServiceTest` (8) — same shape |
+| **Application / orchestration** | `AccountApplicationServiceTest` (21), `CustomerApplicationServiceTest` (8) — Mockito on outbound ports | `AccountServiceTest` (23), `CustomerServiceTest` (9) — Mockito on Spring Data repos |
+| **Web (controller slice)** | `AdminControllerTest` (25), `AccountControllerTest` (19), `CustomerControllerTest` (7) — `@WebMvcTest`, `@MockitoBean` on use-case interfaces | `AdminControllerTest` (22), `AccountControllerTest` (19), `CustomerControllerTest` (7) — `@WebMvcTest`, `@MockitoBean` on service classes |
+| **Repository integration** | — (persistence adapter is internal to the JPA adapter package; not separately tested) | `CustomerRepositoryTest` (4), `AccountRepositoryTest` (3) — `@DataJpaTest` + H2 |
+| **End-to-end** | — (no E2E suite; the per-layer slice tests cover the seams) | `CustomerE2ETest` (5), `AccountE2ETest` (3) — `@SpringBootTest` + H2 + real `MockMvc` |
+
+### Test-pyramid totals
+
+| Tier | HA1 | LA1 |
+|---|---:|---:|
+| Pure unit (domain model, value objects, state, policy enums, domain services) | 96 | 18 |
+| Application / service unit (Mockito) | 29 | 32 |
+| Web slice (`@WebMvcTest`) | 51 | 48 |
+| Repository integration (`@DataJpaTest`) | 0 | 7 |
+| End-to-end (`@SpringBootTest`) | 0 | 8 |
+| **Total** | **176** | **119** |
+
+### Per-feature test mapping
+
+When a feature was added, the tests landed in different places. For each major feature, here is where the assertions live:
+
+| Feature | HA1 test landings | LA1 test landings |
+|---|---|---|
+| **Account-type behavior** (overdraft, accrual rules, maturation) | `CheckingAccountTest` (4 tests on the entity), `SavingsAccountTest` (7), `TimeDepositAccountTest` (9) — pure JUnit, no mocks | `AccountServiceTest` (~12 tests covering the same behaviors via `if (type == ...)` branches with Mockito on repos) |
+| **AccountStatus invariants (state machine)** | `AccountStateTest` (20 tests on the state classes) + status guards covered in `AccountTest` | Status checks asserted indirectly in `AccountServiceTest` and `AdminControllerTest` (e.g., `freezeAccount_returnsUnprocessableEntityForInvalidTransition`) |
+| **Account opening (3 typed endpoints)** | `AccountControllerTest`: `openChecking_returnsCreated`, `openSavings_returnsCreated`, `openTimeDeposit_returnsCreated`, `openChecking_returnsBadRequestOnMissingCurrency`, `openChecking_returnsForbiddenForAdminRole`; `AccountApplicationServiceTest`: `shouldOpenChecking/Savings/TimeDeposit*` | `AccountControllerTest`: same names; `AccountServiceTest`: `createCheckingAccount_*`, `shouldOpenSavingsAccountWithRate`, `shouldOpenTimeDepositAccountWithPrincipalAsBalance`, `shouldThrowCustomerNotFoundWhenOwnerMissing` |
+| **Savings interest accrual** | `SavingsAccountTest.shouldAccrueInterestForAMonth` (entity-level, exact math), `shouldAccrueInterestEvenWhenFrozen`, `shouldRejectAccrualOnClosedAccount`, `shouldRejectDoubleAccrualForSameMonth`; `AccountApplicationServiceTest.shouldAccrueInterestOnSavingsAccount`/`shouldRejectAccrueInterestOnNonSavingsAccount`; `AdminControllerTest.accrueInterest_returnsOk`/`accrueInterest_returnsForbiddenForCustomerRole` | `AccountServiceTest.shouldAccrueMonthlyInterestOnSavings` (12% annual on $1000 = $10 expected), `shouldRejectAccrueOnNonSavings`; `AdminControllerTest.accrueInterest_returnsOk`/`accrueInterest_returnsForbiddenForCustomerRole` |
+| **Time deposit maturation** | `TimeDepositAccountTest.shouldMatureOnOrAfterMaturityDateAndCreditInterest`, `shouldRejectMaturationBeforeMaturityDate`, `shouldRejectDoubleMaturation`, `shouldMatureWhenFrozen`, `shouldRejectMaturationOnClosedAccount`, `shouldAllowWithdrawalAfterMaturity`; `AccountApplicationServiceTest.shouldMatureTimeDeposit*`/`shouldRejectMatureOnNonTimeDeposit*`; `AdminControllerTest.matureTimeDeposit_returnsOk` | `AccountServiceTest.shouldMatureTimeDepositOnOrAfterMaturityAndCreditInterest`, `shouldRejectMatureOnNonTimeDeposit`, `shouldRejectWithdrawOnUnmaturedTimeDeposit`, `shouldRejectDepositOnTimeDeposit`, `shouldRejectTransferFromTimeDeposit`; `AdminControllerTest.matureTimeDeposit_returnsOk` |
+| **Customer tier — fee multiplier** | `CustomerTierTest.premiumHalvesFeeAndRaisesCaps`/`privateIsFreeAndUnlimited` (policy data on the enum); `TransferDomainServiceTest.standardTierPaysFullFee`/`premiumTierPaysHalfFee`/`privateTierPaysNoFee`; `AccountApplicationServiceTest.shouldHalveFeeForPremiumSourceCustomer` (integration through the service); `AccountControllerTest` happy-path transfer | `TransferServiceTest.standardTierPaysFullFeeForDifferentCustomers`/`premiumTierPaysHalfFee`/`privateTierPaysNoFee`; `AccountServiceTest.shouldHalveFeeForPremiumSourceCustomer` (the actual debit math); `AccountControllerTest` transfer tests |
+| **Customer tier — per-transaction caps** | `TransferDomainServiceTest.rejectsTransferAboveStandardCap`/`allowsTransferAtExactlyTheCap`/`privateTierTransferIsUnlimited`/`rejectsWithdrawalAbovePremiumCap`/`privateTierWithdrawalIsUnlimited`; `AccountApplicationServiceTest.shouldRejectTransferAboveStandardCap`/`shouldRejectWithdrawAboveStandardCap` | `TransferServiceTest.rejectsTransferAboveStandardCap`/`allowsTransferAtExactlyTheCap`/`privateTierTransferIsUnlimited`/`rejectsWithdrawalAbovePremiumCap`/`privateTierWithdrawalIsUnlimited`; `AccountServiceTest.shouldRejectTransferAboveStandardCap`/`shouldRejectWithdrawAboveStandardCap` |
+| **Customer tier — change endpoint** | `CustomerApplicationServiceTest.shouldChangeCustomerTier`/`shouldThrowCustomerNotFoundOnChangeTierForMissingCustomer`; `CustomerTest.shouldDefaultToStandardTier`/`shouldChangeTier`/`shouldRejectNullTier`; `AdminControllerTest.changeCustomerTier_returnsOk`/`...returnsBadRequestOnMissingTier`/`...returnsForbiddenForCustomerRole` | `CustomerServiceTest.shouldDefaultNewCustomerToStandardTier`/`shouldChangeCustomerTier`/`shouldThrowCustomerNotFoundOnChangeTierForMissingCustomer`; `AdminControllerTest.changeCustomerTier_returnsOk`/`...returnsBadRequestOnMissingTier`/`...returnsForbiddenForCustomerRole` |
+
+### What this reveals about test architecture
+
+Three things worth noting from the table above:
+
+1. **Where assertions live tracks where logic lives.** HA1 asserts savings accrual math in `SavingsAccountTest` (entity-level pure unit). LA1 asserts the same math in `AccountServiceTest` (Mockito-backed, requires repository stubs). The behavior is identical; the test infrastructure is heavier in LA1 because the logic is wrapped in service orchestration.
+
+2. **HA1 has redundancy that LA1 cannot afford.** Account-type behavior is asserted three times in HA1 — once on the entity (no mocks), once at the service (with mocks), once at the controller (with `@WebMvcTest`). Each layer can be tested in isolation. LA1 asserts at the service and controller; the entity has nothing testable in isolation.
+
+3. **LA1 needs E2E tests that HA1 doesn't.** Because LA1's service depends directly on `AccountRepository` (a Spring Data interface implemented by JPA at runtime), a Mockito-mocked test cannot detect schema or query-method bugs. `@DataJpaTest` and `@SpringBootTest` close that gap. HA1 hides the schema behind an outbound port and verifies the port contract via the application service tests; the JPA adapter is small enough that an integration test would add little value.
+
+The trade-off is concrete: HA1 produces 47 tests on the rich domain that run in milliseconds with no Spring context; LA1 cannot produce those tests but has 15 integration/E2E tests that catch a class of bugs HA1 never sees.
