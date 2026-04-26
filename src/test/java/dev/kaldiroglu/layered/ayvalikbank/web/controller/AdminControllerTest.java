@@ -5,7 +5,10 @@ import dev.kaldiroglu.layered.ayvalikbank.config.BankUserDetailsService;
 import dev.kaldiroglu.layered.ayvalikbank.config.SecurityConfig;
 import dev.kaldiroglu.layered.ayvalikbank.exception.AccountNotOperableException;
 import dev.kaldiroglu.layered.ayvalikbank.exception.CustomerNotFoundException;
+import dev.kaldiroglu.layered.ayvalikbank.model.Currency;
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
+import dev.kaldiroglu.layered.ayvalikbank.model.Transaction;
+import dev.kaldiroglu.layered.ayvalikbank.model.TransactionType;
 import dev.kaldiroglu.layered.ayvalikbank.service.AccountService;
 import dev.kaldiroglu.layered.ayvalikbank.service.CustomerService;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -220,5 +224,61 @@ class AdminControllerTest {
     void closeAccount_returnsForbiddenForCustomerRole() throws Exception {
         mockMvc.perform(put("/api/admin/accounts/{id}/close", UUID.randomUUID()))
                 .andExpect(status().isForbidden());
+    }
+
+    // ── PUT /api/admin/accounts/{id}/accrue-interest ─────────────────────
+
+    @Test @WithMockUser(roles = "ADMIN")
+    void accrueInterest_returnsOk() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        Transaction tx = new Transaction();
+        tx.setId(UUID.randomUUID());
+        tx.setAccountId(accountId);
+        tx.setType(TransactionType.INTEREST);
+        tx.setAmount(new BigDecimal("10"));
+        tx.setCurrency(Currency.USD);
+        tx.setCreatedAt(java.time.LocalDateTime.now());
+        tx.setDescription("Interest accrual for 2026-04");
+        when(accountService.accrueInterest(any(), any())).thenReturn(tx);
+
+        mockMvc.perform(put("/api/admin/accounts/{id}/accrue-interest", accountId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"month":"2026-04"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("INTEREST"))
+                .andExpect(jsonPath("$.amount").value(10));
+    }
+
+    @Test @WithMockUser(roles = "CUSTOMER")
+    void accrueInterest_returnsForbiddenForCustomerRole() throws Exception {
+        mockMvc.perform(put("/api/admin/accounts/{id}/accrue-interest", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"month":"2026-04"}
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
+    // ── PUT /api/admin/accounts/{id}/mature ──────────────────────────────
+
+    @Test @WithMockUser(roles = "ADMIN")
+    void matureTimeDeposit_returnsOk() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        Transaction tx = new Transaction();
+        tx.setId(UUID.randomUUID());
+        tx.setAccountId(accountId);
+        tx.setType(TransactionType.INTEREST);
+        tx.setAmount(new BigDecimal("50"));
+        tx.setCurrency(Currency.USD);
+        tx.setCreatedAt(java.time.LocalDateTime.now());
+        tx.setDescription("Maturity interest credit");
+        when(accountService.matureTimeDeposit(any())).thenReturn(tx);
+
+        mockMvc.perform(put("/api/admin/accounts/{id}/mature", accountId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("INTEREST"))
+                .andExpect(jsonPath("$.amount").value(50));
     }
 }

@@ -2,6 +2,7 @@ package dev.kaldiroglu.layered.ayvalikbank.repository;
 
 import dev.kaldiroglu.layered.ayvalikbank.model.Account;
 import dev.kaldiroglu.layered.ayvalikbank.model.AccountStatus;
+import dev.kaldiroglu.layered.ayvalikbank.model.AccountType;
 import dev.kaldiroglu.layered.ayvalikbank.model.Currency;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,8 @@ class AccountRepositoryTest {
         a.setCurrency(currency);
         a.setBalance(BigDecimal.ZERO);
         a.setStatus(AccountStatus.ACTIVE);
+        a.setType(AccountType.CHECKING);
+        a.setOverdraftLimit(BigDecimal.ZERO);
         return a;
     }
 

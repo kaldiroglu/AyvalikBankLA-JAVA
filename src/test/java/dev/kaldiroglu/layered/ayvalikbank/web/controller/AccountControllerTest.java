@@ -40,6 +40,30 @@ class AccountControllerTest {
         a.setCurrency(currency);
         a.setBalance(BigDecimal.ZERO);
         a.setStatus(AccountStatus.ACTIVE);
+        a.setType(AccountType.CHECKING);
+        a.setOverdraftLimit(BigDecimal.ZERO);
+        return a;
+    }
+
+    private Account stubSavingsAccount(UUID ownerId, Currency currency, BigDecimal rate) {
+        Account a = stubAccount(ownerId, currency);
+        a.setType(AccountType.SAVINGS);
+        a.setOverdraftLimit(null);
+        a.setInterestRate(rate);
+        return a;
+    }
+
+    private Account stubTimeDepositAccount(UUID ownerId, Currency currency, BigDecimal principal,
+                                            java.time.LocalDate maturity, BigDecimal rate) {
+        Account a = stubAccount(ownerId, currency);
+        a.setType(AccountType.TIME_DEPOSIT);
+        a.setOverdraftLimit(null);
+        a.setBalance(principal);
+        a.setPrincipal(principal);
+        a.setOpenedOn(java.time.LocalDate.now());
+        a.setMaturityDate(maturity);
+        a.setInterestRate(rate);
+        a.setMatured(false);
         return a;
     }
 
@@ -56,27 +80,29 @@ class AccountControllerTest {
         return t;
     }
 
-    // ── POST /api/accounts ────────────────────────────────────────────────
+    // ── POST /api/accounts/checking ──────────────────────────────────────
 
     @Test @WithMockUser(roles = "CUSTOMER")
-    void createAccount_returnsCreated() throws Exception {
+    void createCheckingAccount_returnsCreated() throws Exception {
         UUID ownerId = UUID.randomUUID();
-        when(accountService.createAccount(any(), any())).thenReturn(stubAccount(ownerId, Currency.USD));
+        when(accountService.createCheckingAccount(any(), any(), any()))
+                .thenReturn(stubAccount(ownerId, Currency.USD));
 
-        mockMvc.perform(post("/api/accounts")
+        mockMvc.perform(post("/api/accounts/checking")
                         .param("ownerId", ownerId.toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"currency":"USD"}
+                                {"currency":"USD","overdraftLimit":0}
                                 """))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.type").value("CHECKING"))
                 .andExpect(jsonPath("$.currency").value("USD"))
                 .andExpect(jsonPath("$.balance").value(0));
     }
 
     @Test @WithMockUser(roles = "CUSTOMER")
-    void createAccount_returnsBadRequestOnMissingCurrency() throws Exception {
-        mockMvc.perform(post("/api/accounts")
+    void createCheckingAccount_returnsBadRequestOnMissingCurrency() throws Exception {
+        mockMvc.perform(post("/api/accounts/checking")
                         .param("ownerId", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
@@ -85,14 +111,50 @@ class AccountControllerTest {
     }
 
     @Test @WithMockUser(roles = "ADMIN")
-    void createAccount_returnsForbiddenForAdminRole() throws Exception {
-        mockMvc.perform(post("/api/accounts")
+    void createCheckingAccount_returnsForbiddenForAdminRole() throws Exception {
+        mockMvc.perform(post("/api/accounts/checking")
                         .param("ownerId", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"currency":"USD"}
                                 """))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test @WithMockUser(roles = "CUSTOMER")
+    void createSavingsAccount_returnsCreated() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        when(accountService.createSavingsAccount(any(), any(), any()))
+                .thenReturn(stubSavingsAccount(ownerId, Currency.EUR, new BigDecimal("0.03")));
+
+        mockMvc.perform(post("/api/accounts/savings")
+                        .param("ownerId", ownerId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currency":"EUR","annualInterestRate":0.03}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.type").value("SAVINGS"))
+                .andExpect(jsonPath("$.interestRate").value(0.03));
+    }
+
+    @Test @WithMockUser(roles = "CUSTOMER")
+    void createTimeDepositAccount_returnsCreated() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        java.time.LocalDate maturity = java.time.LocalDate.now().plusYears(1);
+        when(accountService.createTimeDepositAccount(any(), any(), any(), any(), any()))
+                .thenReturn(stubTimeDepositAccount(ownerId, Currency.USD,
+                        new BigDecimal("1000"), maturity, new BigDecimal("0.05")));
+
+        mockMvc.perform(post("/api/accounts/time-deposit")
+                        .param("ownerId", ownerId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"currency":"USD","principal":1000,"maturityDate":"%s","annualInterestRate":0.05}
+                                """.formatted(maturity)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.type").value("TIME_DEPOSIT"))
+                .andExpect(jsonPath("$.principal").value(1000));
     }
 
     // ── GET /api/customers/{id}/accounts ─────────────────────────────────

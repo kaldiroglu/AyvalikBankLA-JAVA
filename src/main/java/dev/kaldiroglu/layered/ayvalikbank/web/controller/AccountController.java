@@ -1,9 +1,7 @@
 package dev.kaldiroglu.layered.ayvalikbank.web.controller;
 
 import dev.kaldiroglu.layered.ayvalikbank.service.AccountService;
-import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.CreateAccountRequest;
-import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.MoneyOperationRequest;
-import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.TransferRequest;
+import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.*;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.response.AccountResponse;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.response.BalanceResponse;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.response.TransactionResponse;
@@ -12,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -25,13 +24,30 @@ public class AccountController {
         this.accountService = accountService;
     }
 
-    @PostMapping("/accounts")
-    public ResponseEntity<AccountResponse> createAccount(
+    @PostMapping("/accounts/checking")
+    public ResponseEntity<AccountResponse> createCheckingAccount(
             @RequestParam UUID ownerId,
-            @Valid @RequestBody CreateAccountRequest request) {
-        // Phase-1 stop-gap: old endpoint forwards to checking with no overdraft.
-        // Phase 2 will replace this with three typed endpoints (/checking, /savings, /time-deposit).
-        var account = accountService.createCheckingAccount(ownerId, request.currency(), java.math.BigDecimal.ZERO);
+            @Valid @RequestBody CreateCheckingAccountRequest request) {
+        BigDecimal overdraft = request.overdraftLimit() == null ? BigDecimal.ZERO : request.overdraftLimit();
+        var account = accountService.createCheckingAccount(ownerId, request.currency(), overdraft);
+        return ResponseEntity.status(HttpStatus.CREATED).body(AccountResponse.from(account));
+    }
+
+    @PostMapping("/accounts/savings")
+    public ResponseEntity<AccountResponse> createSavingsAccount(
+            @RequestParam UUID ownerId,
+            @Valid @RequestBody CreateSavingsAccountRequest request) {
+        var account = accountService.createSavingsAccount(ownerId, request.currency(), request.annualInterestRate());
+        return ResponseEntity.status(HttpStatus.CREATED).body(AccountResponse.from(account));
+    }
+
+    @PostMapping("/accounts/time-deposit")
+    public ResponseEntity<AccountResponse> createTimeDepositAccount(
+            @RequestParam UUID ownerId,
+            @Valid @RequestBody CreateTimeDepositAccountRequest request) {
+        var account = accountService.createTimeDepositAccount(
+                ownerId, request.currency(), request.principal(),
+                request.maturityDate(), request.annualInterestRate());
         return ResponseEntity.status(HttpStatus.CREATED).body(AccountResponse.from(account));
     }
 

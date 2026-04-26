@@ -73,14 +73,15 @@ class AccountE2ETest {
     @Test
     void shouldCreateAccountDepositAndCheckBalance() throws Exception {
         // Create account
-        String createResponse = mockMvc.perform(post("/api/accounts")
+        String createResponse = mockMvc.perform(post("/api/accounts/checking")
                         .param("ownerId", customer.getId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", customerAuth)
                         .content("""
-                                {"currency":"USD"}
+                                {"currency":"USD","overdraftLimit":0}
                                 """))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.type").value("CHECKING"))
                 .andExpect(jsonPath("$.currency").value("USD"))
                 .andExpect(jsonPath("$.balance").value(0))
                 .andReturn().getResponse().getContentAsString();
@@ -117,6 +118,8 @@ class AccountE2ETest {
         account.setCurrency(Currency.USD);
         account.setBalance(BigDecimal.ZERO);
         account.setStatus(AccountStatus.ACTIVE);
+        account.setType(AccountType.CHECKING);
+        account.setOverdraftLimit(BigDecimal.ZERO);
         accountRepository.save(account);
 
         mockMvc.perform(put("/api/admin/accounts/{id}/freeze", account.getId())
@@ -150,6 +153,8 @@ class AccountE2ETest {
         source.setCurrency(Currency.USD);
         source.setBalance(new BigDecimal("1000"));
         source.setStatus(AccountStatus.ACTIVE);
+        source.setType(AccountType.CHECKING);
+        source.setOverdraftLimit(BigDecimal.ZERO);
         accountRepository.save(source);
 
         Account target = new Account();
@@ -158,6 +163,8 @@ class AccountE2ETest {
         target.setCurrency(Currency.USD);
         target.setBalance(BigDecimal.ZERO);
         target.setStatus(AccountStatus.ACTIVE);
+        target.setType(AccountType.CHECKING);
+        target.setOverdraftLimit(BigDecimal.ZERO);
         accountRepository.save(target);
 
         mockMvc.perform(post("/api/accounts/{id}/transfer", source.getId())

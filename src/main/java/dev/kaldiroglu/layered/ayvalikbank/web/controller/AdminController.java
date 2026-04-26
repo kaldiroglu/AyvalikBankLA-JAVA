@@ -2,9 +2,11 @@ package dev.kaldiroglu.layered.ayvalikbank.web.controller;
 
 import dev.kaldiroglu.layered.ayvalikbank.service.AccountService;
 import dev.kaldiroglu.layered.ayvalikbank.service.CustomerService;
+import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.AccrueInterestRequest;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.CreateCustomerRequest;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.SetTransferFeeRequest;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.response.CustomerResponse;
+import dev.kaldiroglu.layered.ayvalikbank.web.dto.response.TransactionResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -69,5 +71,19 @@ public class AdminController {
     public ResponseEntity<Void> closeAccount(@PathVariable UUID id) {
         accountService.closeAccount(id);
         return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/accounts/{id}/accrue-interest")
+    public ResponseEntity<TransactionResponse> accrueInterest(
+            @PathVariable UUID id,
+            @Valid @RequestBody AccrueInterestRequest request) {
+        var tx = accountService.accrueInterest(id, request.month());
+        return ResponseEntity.ok(TransactionResponse.from(tx));
+    }
+
+    @PutMapping("/accounts/{id}/mature")
+    public ResponseEntity<TransactionResponse> matureTimeDeposit(@PathVariable UUID id) {
+        var tx = accountService.matureTimeDeposit(id);
+        return ResponseEntity.ok(TransactionResponse.from(tx));
     }
 }
