@@ -139,12 +139,15 @@ sequenceDiagram
 
 ## 4. Transfer (Cross-customer transfer with fee)
 
+The source customer's `CustomerTier` is fetched and applied: it scales the fee (1.0× / 0.5× / 0.0×) and gates the per-transaction transfer cap. Time deposits cannot be the source — the service rejects them outright.
+
 ```mermaid
 sequenceDiagram
     actor Client
     participant Controller as AccountController
     participant Service as AccountService
     participant TransferSvc as TransferService
+    participant CustRepo as CustomerRepository
     participant SettingsRepo as SettingsRepository
     participant AccRepo as AccountRepository
     participant TxRepo as TransactionRepository
@@ -165,7 +168,16 @@ sequenceDiagram
     AccRepo-->>Service: Optional<Account>
 
     Note over Service: Check both accounts ACTIVE<br/>(else AccountNotOperableException)
+    Note over Service: source.type != TIME_DEPOSIT<br/>(else AccountNotOperableException)
     Note over Service: Check currency match on both<br/>(else IllegalArgumentException)
+
+    Service->>CustRepo: findById(source.ownerId)
+    CustRepo->>DB: SELECT * FROM customers WHERE id=?
+    DB-->>CustRepo: Customer (with tier)
+    CustRepo-->>Service: Optional<Customer>
+
+    Service->>TransferSvc: requireTransferWithinLimit(amount, tier)
+    Note over TransferSvc: throws LimitExceededException → 422<br/>if amount > tier.maxPerTransfer
 
     Service->>SettingsRepo: findById("TRANSFER_FEE_PERCENT")
     SettingsRepo->>DB: SELECT value FROM settings WHERE key=?
@@ -174,9 +186,9 @@ sequenceDiagram
 
     Note over Service: sameCustomer = (source.ownerId == target.ownerId)
 
-    Service->>TransferSvc: calculateFee(200, sameCustomer=false, feePercent=1.0)
-    Note over TransferSvc: fee = 200 * 1.0 / 100 = 2.00
-    TransferSvc-->>Service: BigDecimal(2.00)
+    Service->>TransferSvc: calculateFee(200, sameCustomer=false, feePercent=1.0, tier)
+    Note over TransferSvc: fee = 200 * 1.0 * tier.feeMultiplier / 100<br/>STANDARD = 2.00, PREMIUM = 1.00, PRIVATE = 0.00
+    TransferSvc-->>Service: BigDecimal fee
 
     Note over Service: Check source.balance >= amount + fee<br/>(else InsufficientFundsException)
 
@@ -337,3 +349,147 @@ Valid transitions:
 - `FROZEN → CLOSED` via `close()`
 - Any attempt to transition from `CLOSED` throws `AccountNotOperableException`
 - Freezing a `FROZEN` account or unfreezing an `ACTIVE` account throws `AccountNotOperableException`
+
+---
+
+## 8. OpenCheckingAccount (representative of all three open-* flows)
+
+Customer opens a new checking account. The same shape applies to `POST /api/accounts/savings` (rate field) and `POST /api/accounts/time-deposit` (principal/maturity/rate) — different request DTO, different `AccountService` method, the entity is the same anemic `Account` with the appropriate `type` discriminator and type-specific columns set.
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant Controller as AccountController
+    participant Service as AccountService
+    participant CustRepo as CustomerRepository
+    participant AccRepo as AccountRepository
+    participant DB
+
+    Client->>Controller: POST /api/accounts/checking?ownerId={id}<br/>{"currency":"USD","overdraftLimit":0}<br/>Authorization: Basic customer:...
+
+    Controller->>Service: createCheckingAccount(ownerId, USD, 0)
+
+    Service->>CustRepo: existsById(ownerId)
+    CustRepo->>DB: SELECT 1 FROM customers WHERE id=?
+    DB-->>CustRepo: true
+    CustRepo-->>Service: true
+
+    Note over Service: new Account()<br/>setType(CHECKING)<br/>setBalance(0)<br/>setStatus(ACTIVE)<br/>setOverdraftLimit(0)
+
+    Service->>AccRepo: save(account)
+    AccRepo->>DB: INSERT INTO accounts (..., type, overdraft_limit) VALUES (..., 'CHECKING', 0)
+    DB-->>AccRepo: saved row
+    AccRepo-->>Service: Account
+
+    Service-->>Controller: Account
+    Controller-->>Client: 201 Created<br/>{"id","type":"CHECKING","balance":0,"overdraftLimit":0,...}
+```
+
+---
+
+## 9. AccrueInterest (Admin triggers monthly accrual on a savings account)
+
+Admin-only. Rejects non-savings accounts; allows ACTIVE and FROZEN (interest accrual is a system action); rejects CLOSED; rejects double-accrual for the same month.
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant Controller as AdminController
+    participant Service as AccountService
+    participant AccRepo as AccountRepository
+    participant TxRepo as TransactionRepository
+    participant DB
+
+    Client->>Controller: PUT /api/admin/accounts/{id}/accrue-interest<br/>{"month":"2026-04"}<br/>Authorization: Basic admin:...
+
+    Controller->>Service: accrueInterest(accountId, YearMonth.of(2026, 4))
+
+    Service->>AccRepo: findById(accountId)
+    AccRepo->>DB: SELECT * FROM accounts WHERE id=?
+    DB-->>AccRepo: Account (with type, interest_rate, last_accrual_date)
+    AccRepo-->>Service: Optional<Account>
+
+    Note over Service: account.type == SAVINGS<br/>(else AccountNotOperableException)
+    Note over Service: account.status != CLOSED<br/>(else AccountNotOperableException)
+    Note over Service: firstOfNextMonth > lastAccrualDate<br/>(else "already accrued")
+
+    Note over Service: monthlyRate = annualRate / 12<br/>interest = balance × monthlyRate (HALF_UP, 2dp)<br/>balance += interest<br/>lastAccrualDate = first of next month
+
+    Service->>AccRepo: save(account)
+    AccRepo->>DB: UPDATE accounts SET balance=?, last_accrual_date=? WHERE id=?
+    Service->>TxRepo: save(INTEREST tx)
+    TxRepo->>DB: INSERT INTO transactions (type='INTEREST', ...)
+
+    Service-->>Controller: Transaction
+    Controller-->>Client: 200 OK {"type":"INTEREST","amount":...}
+```
+
+---
+
+## 10. MatureTimeDeposit (Admin matures a time deposit)
+
+Admin-only. Rejects non-time-deposit accounts; allows ACTIVE and FROZEN; rejects CLOSED, already-matured, or pre-maturity. After maturation, withdrawals on the account are unlocked; deposits and transfers remain forbidden.
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant Controller as AdminController
+    participant Service as AccountService
+    participant AccRepo as AccountRepository
+    participant TxRepo as TransactionRepository
+    participant DB
+
+    Client->>Controller: PUT /api/admin/accounts/{id}/mature<br/>Authorization: Basic admin:...
+
+    Controller->>Service: matureTimeDeposit(accountId)
+
+    Service->>AccRepo: findById(accountId)
+    AccRepo->>DB: SELECT * FROM accounts WHERE id=?
+    DB-->>AccRepo: Account (with type, principal, opened_on, maturity_date, matured)
+    AccRepo-->>Service: Optional<Account>
+
+    Note over Service: account.type == TIME_DEPOSIT<br/>(else AccountNotOperableException)
+    Note over Service: status != CLOSED & !matured & today >= maturityDate<br/>(else AccountNotOperableException)
+
+    Note over Service: years = monthsBetween(openedOn, maturityDate) / 12<br/>interest = principal × annualRate × years (HALF_UP, 2dp)<br/>balance += interest<br/>matured = true
+
+    Service->>AccRepo: save(account)
+    AccRepo->>DB: UPDATE accounts SET balance=?, matured=true WHERE id=?
+    Service->>TxRepo: save(INTEREST tx)
+    TxRepo->>DB: INSERT INTO transactions (type='INTEREST', ...)
+
+    Service-->>Controller: Transaction
+    Controller-->>Client: 200 OK {"type":"INTEREST","amount":...}
+```
+
+---
+
+## 11. ChangeCustomerTier (Admin promotes/demotes a customer)
+
+Admin-only. The new tier takes effect on the customer's next withdrawal or transfer (the source-customer fetch in `AccountService.transfer/withdraw` reads the latest persisted value).
+
+```mermaid
+sequenceDiagram
+    actor Client
+    participant Controller as AdminController
+    participant Service as CustomerService
+    participant CustRepo as CustomerRepository
+    participant DB
+
+    Client->>Controller: PUT /api/admin/customers/{id}/tier<br/>{"tier":"PREMIUM"}<br/>Authorization: Basic admin:...
+
+    Controller->>Service: changeCustomerTier(customerId, PREMIUM)
+
+    Service->>CustRepo: findById(customerId)
+    CustRepo->>DB: SELECT * FROM customers WHERE id=?
+    DB-->>CustRepo: Customer
+    CustRepo-->>Service: Optional<Customer>
+
+    Note over Service: customer.setTier(PREMIUM)
+
+    Service->>CustRepo: save(customer)
+    CustRepo->>DB: UPDATE customers SET tier='PREMIUM' WHERE id=?
+
+    Service-->>Controller: (void)
+    Controller-->>Client: 200 OK
+```

@@ -35,14 +35,20 @@ Default admin: `admin@ayvalikbank.dev` / `Admin@123!`
 ## Domain
 
 Same domain as AyvalikBankHA1:
-- **Admin** — creates/deletes customers, sets transfer fee, freezes/unfreezes/closes accounts
-- **Customer** — opens accounts, deposits, withdraws, transfers, changes password
+- **Admin** — creates/deletes customers, sets transfer fee, changes customer tiers, freezes/unfreezes/closes accounts, accrues savings interest, matures time deposits
+- **Customer** — opens accounts (checking / savings / time deposit), deposits, withdraws, transfers, changes password
 
 Key domain rules:
 - Accounts have a currency; all operations are currency-matched
 - Accounts follow a state machine: `ACTIVE → FROZEN → ACTIVE`, `ACTIVE|FROZEN → CLOSED` (terminal)
-- Transfers between accounts of the same customer are free; cross-customer transfers carry an admin-configured fee
+- Transfers between accounts of the same customer are free; cross-customer transfers carry an admin-configured fee scaled by the source customer's tier
+- Each customer has a tier — `STANDARD`, `PREMIUM`, or `PRIVATE` — that scales their cross-customer fee (1.0× / 0.5× / 0.0×) and caps per-transaction transfers and withdrawals (PRIVATE = unlimited)
 - Passwords must meet a strength policy and cannot reuse the last 3 passwords
+
+Three account types are supported, each with its own behavior (handled by `if/else` branches in `AccountService` — preserving the anemic+fat-service style):
+- **CHECKING** — general-purpose account with a configurable overdraft limit; withdrawals may take the balance negative up to that limit
+- **SAVINGS** — no overdraft; supports monthly interest accrual (admin endpoint `accrueInterest`) at a configurable annual rate; accrual works on ACTIVE and FROZEN accounts
+- **TIME_DEPOSIT** — principal locked at opening; deposits are rejected; the account must be matured (admin endpoint `mature`) on or after the maturity date, which credits the full annual interest; withdrawals are only permitted after maturity
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 # Tests — Ayvalık Bank LA-1
 
-**87 tests across 11 test classes — all passing.**
+**119 tests across 11 test classes — all passing.**
 
 ---
 
@@ -14,17 +14,17 @@
                         │  AccountE2ETest  (3)               │
                         └────────────────────────────────────┘
               ┌──────────────────────────────────────────────────┐
-              │  Controller / Web  (43 tests)                    │
+              │  Controller / Web  (48 tests)                    │
               │  @WebMvcTest + MockMvc + @MockitoBean            │
-              │  AdminControllerTest    (19)                     │
-              │  AccountControllerTest  (17)                     │
+              │  AdminControllerTest    (22)                     │
+              │  AccountControllerTest  (19)                     │
               │  CustomerControllerTest  (7)                     │
               └──────────────────────────────────────────────────┘
      ┌────────────────────────────────────────────────────────────────┐
-     │  Service Unit  (18 tests)                                      │
+     │  Service Unit  (32 tests)                                      │
      │  Mockito (@ExtendWith(MockitoExtension.class))                 │
-     │  AccountServiceTest   (12)                                     │
-     │  CustomerServiceTest   (6)                                     │
+     │  AccountServiceTest   (23)                                     │
+     │  CustomerServiceTest   (9)                                     │
      └────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────┐
 │  Repository Integration  (7 tests)                                       │
@@ -33,10 +33,10 @@
 │  AccountRepositoryTest   (3)                                             │
 └──────────────────────────────────────────────────────────────────────────┘
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Pure Unit  (11 tests)                                                   │
+│  Pure Unit  (18 tests)                                                   │
 │  Plain JUnit 5 — no Spring context, no mocks                             │
 │  PasswordValidationServiceTest  (8)                                      │
-│  TransferServiceTest            (3)                                      │
+│  TransferServiceTest           (10)                                      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -47,30 +47,31 @@
 | Class | Type | Tool | Focus | Tests |
 |-------|------|------|-------|------:|
 | `PasswordValidationServiceTest` | Pure unit | JUnit 5 + AssertJ | Password strength rules: length, upper, lower, digit, special, null | 8 |
-| `TransferServiceTest` | Pure unit | JUnit 5 + AssertJ | Fee calculation: same-customer free, cross-customer %, zero fee rate | 3 |
-| `CustomerServiceTest` | Service unit | Mockito | createCustomer (happy + weak password), deleteCustomer (happy + not found), changePassword (happy + reuse) | 6 |
-| `AccountServiceTest` | Service unit | Mockito | createAccount, deposit, withdraw (insufficient funds), transfer (same-customer free + cross-customer fee), freeze/unfreeze/close (happy + invalid transitions) | 12 |
-| `AdminControllerTest` | Web | @WebMvcTest | createCustomer (201, missing name, invalid email, 403, 401), deleteCustomer (204, 404), listCustomers (200 with list, empty), setTransferFee (200, negative, >100), freeze/unfreeze/close (200, 422, 403) | 19 |
+| `TransferServiceTest` | Pure unit | JUnit 5 + AssertJ | Fee calculation tier-aware (same-customer free, STANDARD full, PREMIUM half, PRIVATE zero, zero rate); per-transaction limit checks (transfer/withdraw caps, exact-cap boundary, PRIVATE unlimited) | 10 |
+| `CustomerServiceTest` | Service unit | Mockito | createCustomer (happy + weak password + default tier STANDARD), deleteCustomer (happy + not found), changePassword (happy + reuse), changeCustomerTier (happy + missing customer) | 9 |
+| `AccountServiceTest` | Service unit | Mockito | createCheckingAccount, deposit (happy + on-time-deposit rejection), withdraw (insufficient funds + checking-overdraft happy + checking-overdraft cap + on-unmatured-time-deposit rejection + tier cap), transfer (same-customer free + cross-customer fee + premium half-fee + tier cap + on-time-deposit rejection), freeze/unfreeze/close (happy + invalid transitions), createSavings, createTimeDeposit, accrueInterest (happy + non-savings rejection), matureTimeDeposit (happy + non-time-deposit rejection) | 23 |
+| `AdminControllerTest` | Web | @WebMvcTest | createCustomer (201, missing name, invalid email, 403, 401), deleteCustomer (204, 404), listCustomers (200 with list, empty), setTransferFee (200, negative, >100), changeCustomerTier (200, missing tier → 400, customer role → 403), freeze/unfreeze/close (200, 422, 403), accrueInterest (200, 403), matureTimeDeposit (200) | 22 |
 | `CustomerControllerTest` | Web | @WebMvcTest | changePassword (200, blank password, weak password → 400, reuse → 409, unknown customer → 404, admin role → 403, no credentials → 401) | 7 |
-| `AccountControllerTest` | Web | @WebMvcTest | createAccount (201, missing currency, admin role → 403), listAccounts (200), getBalance (200, 404), deposit (201, negative → 400, 404), withdraw (201, insufficient → 422), transfer (200, missing target → 400, insufficient → 422), getTransactions (200, 404, 401) | 17 |
+| `AccountControllerTest` | Web | @WebMvcTest | createCheckingAccount (201, missing currency, admin role → 403), createSavingsAccount (201), createTimeDepositAccount (201), listAccounts (200), getBalance (200, 404), deposit (201, negative → 400, 404), withdraw (201, insufficient → 422), transfer (200, missing target → 400, insufficient → 422), getTransactions (200, 404, 401) | 19 |
 | `CustomerRepositoryTest` | Integration | @DataJpaTest + H2 | findByEmail (found, not found), cascade delete of PasswordHistory, unique email constraint | 4 |
 | `AccountRepositoryTest` | Integration | @DataJpaTest + H2 | findByOwnerId (returns matching only), empty list for unknown owner, enum fields persisted correctly | 3 |
 | `CustomerE2ETest` | E2E | @SpringBootTest + H2 | createCustomer full HTTP stack, deleteCustomer with DB assertion, listCustomers, 401 without credentials, 403 customer accessing admin endpoint | 5 |
 | `AccountE2ETest` | E2E | @SpringBootTest + H2 | createAccount + deposit + balance check with DB assertion, freeze + unfreeze with DB assertion, cross-customer transfer with fee applied | 3 |
-| **Total** | | | | **87** |
+| **Total** | | | | **119** |
 
 ---
 
 ## Exception-to-HTTP Mapping
 
-`GlobalExceptionHandler` (`@RestControllerAdvice`) defines these 9 mappings:
+`GlobalExceptionHandler` (`@RestControllerAdvice`) defines these 10 mappings:
 
 | Exception | HTTP Status | Typical Cause |
 |-----------|-------------|---------------|
 | `CustomerNotFoundException` | 404 Not Found | Customer UUID not in database |
 | `AccountNotFoundException` | 404 Not Found | Account UUID not in database |
-| `AccountNotOperableException` | 422 Unprocessable Entity | Invalid state-machine transition (e.g., freeze a FROZEN account) |
-| `InsufficientFundsException` | 422 Unprocessable Entity | Withdraw or transfer exceeds balance |
+| `AccountNotOperableException` | 422 Unprocessable Entity | Invalid state-machine transition, deposit on time deposit, withdraw before maturity, accrue on non-savings, mature on non-time-deposit |
+| `InsufficientFundsException` | 422 Unprocessable Entity | Withdraw or transfer exceeds balance (or overdraft limit on a checking account) |
+| `LimitExceededException` | 422 Unprocessable Entity | Per-transaction transfer or withdrawal exceeds the source customer's tier cap |
 | `InvalidPasswordException` | 400 Bad Request | Password fails strength policy |
 | `PasswordReusedException` | 409 Conflict | New password matches one of the last 3 |
 | `UnauthorizedAccessException` | 403 Forbidden | Customer attempting another customer's operation |
@@ -187,7 +188,7 @@ This difference in testability reflects the underlying architectural difference:
 
 ## Code Coverage Report
 
-Generated by **JaCoCo 0.8.12** via `mvn clean verify`. All 87 tests included.
+Generated by **JaCoCo 0.8.13** via `mvn clean verify`. The figures below pre-date the account-types and customer-tiers features (rerun `mvn verify` to refresh). The JaCoCo bump from 0.8.12 to 0.8.13 was required because the older agent crashes on Mockito-generated classes for Java 25 (class file major version 69).
 
 JaCoCo measures six distinct coverage techniques. Each captures a different dimension of how thoroughly the test suite exercises the production code.
 

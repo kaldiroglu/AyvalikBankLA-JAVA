@@ -222,3 +222,23 @@ Despite these structural differences, both projects achieve similar instruction 
 | **Unit-testable without mocks** | Domain model + domain services | Domain services only |
 | **Test types required** | Controller + service + domain unit | Controller + service + repository + E2E |
 | **Branch coverage (JaCoCo)** | Higher (domain tests reach all branches) | 73% (service paths harder to reach) |
+
+---
+
+## Recent Feature Additions — Side by Side
+
+The two projects share the same use cases, but each renders new behavior in its own architectural style. The features below were added to both:
+
+| Feature | HA1 expression | LA1 expression |
+|---|---|---|
+| **Account types** (CHECKING / SAVINGS / TIME_DEPOSIT) | Sealed `Account` hierarchy: each subclass overrides `deposit`/`withdraw`/`transferOut`; behavior dispatches polymorphically | Single anemic `Account` with a `type` discriminator + nullable type-specific columns; `AccountService` does the dispatch with `if (type == ...)` branches |
+| **Overdraft on checking** | `CheckingAccount.withdraw` enforces the overdraft floor itself | `if (account.getType() == CHECKING) { ... balance + overdraft check ... }` in `AccountService.withdraw` |
+| **Savings monthly accrual** | `SavingsAccount.accrueInterest(YearMonth)` is a method on the entity | `AccountService.accrueInterest(accountId, YearMonth)` is a service method |
+| **Time deposit maturation** | `TimeDepositAccount.mature(LocalDate)` lives on the entity | `AccountService.matureTimeDeposit(accountId)` lives on the service |
+| **Account status invariants** | **State pattern**: `AccountState` sealed interface + `ActiveState`/`FrozenState`/`ClosedState` singletons; `Account.freeze()` is `state = state.freeze()` | `if (status != ACTIVE) throw ...` in every mutating service method |
+| **Customer tiers — fee multiplier** | `TransferDomainService.calculateFee(..., CustomerTier)` scales by `tier.feeMultiplier()` | Same signature on `TransferService.calculateFee` — both projects converge here |
+| **Customer tiers — per-transaction caps** | `TransferDomainService.requireTransferWithinLimit(...)` throws domain `IllegalStateException`, service rewraps as `LimitExceededException` (HTTP 422) | `TransferService.requireTransferWithinLimit(...)` throws `LimitExceededException` directly; service propagates |
+| **Defensive `data.sql` migration** | `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ... NOT NULL DEFAULT '...'` for all new columns | Identical — both ran into the same Hibernate-`ddl-auto`-on-populated-table problem |
+| **JaCoCo on Java 25 mocks** | 0.8.12 crashes on Mockito-generated classes for class-file major-v69 → bumped to 0.8.13 | Same — bumped to 0.8.13 as part of the tier feature |
+
+The pattern across all of these: behavior that lives **on the entity** in HA1 lives **in the fat service** in LA1. The REST surface (endpoints, request/response DTOs) and persistence schema are identical; the architectural realization is mirror-opposite.

@@ -15,14 +15,14 @@ Every anti-pattern described in this document is **intentional**. The project ex
 │  PRESENTATION LAYER  (web/)                                      │
 │                                                                  │
 │  AdminController       CustomerController      AccountController │
-│  ─────────────────     ──────────────────      ──────────────── │
+│  ─────────────────     ──────────────────      ────────────────  │
 │  POST /admin/customers  PUT /customers/{id}/   POST /accounts    │
 │  DELETE /admin/...      password               GET  /accounts/.. │
 │  PUT /admin/accounts/                          POST /accounts/.. │
 │  freeze|unfreeze|close                                           │
 │                                                                  │
 │  Request DTOs (Jakarta @Valid)                                   │
-│  Response DTOs (static from(Entity) factory methods)            │
+│  Response DTOs (static from(Entity) factory methods)             │
 │  GlobalExceptionHandler (@RestControllerAdvice)                  │
 └───────────────────────────┬──────────────────────────────────────┘
                             │  direct dependency (no interface)
@@ -48,15 +48,16 @@ Every anti-pattern described in this document is **intentional**. The project ex
 └───────────────────────────┬──────────────────────────────────────┘
                             │  direct dependency (no interface)
 ┌───────────────────────────▼──────────────────────────────────────┐
-│  REPOSITORY / DATA LAYER  (repository/ + model/)                │
+│  REPOSITORY / DATA LAYER  (repository/ + model/)                 │
 │                                                                  │
 │  CustomerRepository    AccountRepository                         │
 │  TransactionRepository SettingsRepository                        │
-│  (Spring Data JPA — JpaRepository<Entity, UUID>)                │
+│  (Spring Data JPA — JpaRepository<Entity, UUID>)                 │
 │                                                                  │
-│  @Entity classes — anemic, used across all layers:              │
+│  @Entity classes — anemic, used across all layers:               │
 │  Customer · Account · Transaction · Settings · PasswordHistory   │
-│  Enums: AccountStatus · Currency · TransactionType              │
+│  Enums: AccountStatus · AccountType · CustomerTier ·             │
+│         Currency · TransactionType                               │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -86,10 +87,10 @@ Three controllers handle the full API surface:
 
 This is where everything interesting happens in a layered architecture. All business logic lives here:
 
-- `CustomerService` — creates customers (hashes passwords, validates format), deletes them, lists them, and handles password changes (validation, reuse check against history, hash rotation)
-- `AccountService` — all account operations: opening accounts, deposits, withdrawals, transfers (with fee calculation), state-machine transitions (freeze/unfreeze/close), balance queries, and transaction history
+- `CustomerService` — creates customers (hashes passwords, validates format, defaults `tier` to `STANDARD`), deletes them, lists them, handles password changes (validation, reuse check, hash rotation), and changes a customer's tier
+- `AccountService` — all account operations: three open-account methods (one per type), deposits, withdrawals, transfers (with tier-aware fee + per-transaction limit checks), state-machine transitions (freeze/unfreeze/close), balance queries, transaction history, savings interest accrual, and time-deposit maturation. Behavior per account type is dispatched with `if (type == ...) ...` branches — deliberately no sealed hierarchy
 - `PasswordValidationService` — a pure-Java service that enforces the password strength policy (8–16 characters, must contain at least one uppercase, one lowercase, one digit, and one special character)
-- `TransferService` — a pure-Java service that calculates transfer fees: zero for same-customer transfers, `amount × feePercent / 100` for cross-customer transfers
+- `TransferService` — a pure-Java service that calculates transfer fees and validates per-transaction limits: zero fee for same-customer transfers; cross-customer fee = `amount × feePercent × tier.feeMultiplier() / 100` (STANDARD 1.0×, PREMIUM 0.5×, PRIVATE 0.0×). `requireTransferWithinLimit` / `requireWithdrawalWithinLimit` throw `LimitExceededException` when the amount exceeds the source customer's per-transaction tier cap
 
 Services call Spring Data repositories directly via constructor-injected interfaces. There are no port abstractions and no secondary adapters — the service layer couples directly to JPA.
 
@@ -103,6 +104,40 @@ Services call Spring Data repositories directly via constructor-injected interfa
 **Model entities** are annotated with `@Entity` and carry the JPA mapping (`@Id`, `@Column`, `@Enumerated`, `@OneToMany`, `@ManyToOne`). They are plain data containers — no business methods, no validation, no domain behavior. The same entity object that JPA loads from the database is passed all the way up to the controller where it is transformed into a DTO.
 
 This is the clearest expression of the **anemic domain model** anti-pattern. The entity `Account` knows nothing about what it means to freeze an account or validate a deposit currency. That knowledge lives entirely in `AccountService`.
+
+---
+
+## Account types — without polymorphism
+
+In HA1, account types are a sealed hierarchy: `Account` is `sealed abstract`, and `CheckingAccount`, `SavingsAccount`, and `TimeDepositAccount` each override `deposit`/`withdraw`/`transferOut` with their own rules. Behavior dispatches polymorphically — the service holds an `Account` and the JVM picks the right method.
+
+In LA1, there is no hierarchy. `Account` is a single anemic entity with a `type` discriminator column (`CHECKING`, `SAVINGS`, `TIME_DEPOSIT`) and nullable type-specific columns (`overdraftLimit`, `interestRate`, `lastAccrualDate`, `principal`, `openedOn`, `maturityDate`, `matured`). `AccountService` does the dispatch by hand:
+
+```java
+if (account.getType() == AccountType.CHECKING) {
+    BigDecimal floor = account.getOverdraftLimit() == null
+            ? BigDecimal.ZERO
+            : account.getOverdraftLimit().negate();
+    if (projected.compareTo(floor) < 0) ...
+} else {
+    if (projected.signum() < 0)
+        throw new InsufficientFundsException("Insufficient funds");
+}
+```
+
+The State pattern that HA1 uses for `AccountStatus` is similarly absent in LA1 — status checks remain `if (status != ACTIVE)` in the service. Both choices are deliberate: introducing inheritance or polymorphic state would contradict the anemic+fat-service style this project exists to demonstrate. The cost is a fat service that grows with each new type and each new operation; the benefit is one place to look for the rules.
+
+---
+
+## Customer tiers — policy on the enum, enforcement in services
+
+The `CustomerTier` enum (`STANDARD`, `PREMIUM`, `PRIVATE`) carries the policy data: a `feeMultiplier()` (1.0× / 0.5× / 0.0×) and per-transaction caps (`maxPerTransfer`, `maxPerWithdrawal`; null = unlimited for `PRIVATE`). The fat services apply it:
+
+- `TransferService.calculateFee(amount, sameCustomer, feePercent, tier)` scales the admin's fee by the tier multiplier
+- `TransferService.requireTransferWithinLimit(amount, tier)` and `requireWithdrawalWithinLimit(amount, tier)` throw `LimitExceededException` (HTTP 422) when the amount exceeds the cap
+- `AccountService.transfer` and `.withdraw` fetch the source customer to read the tier, run the limit check first, then the fee calc
+
+This shape preserves the layered style. There is no rich `Customer.canTransfer(amount)` method — `Customer` stays anemic, the service enforces.
 
 ---
 
