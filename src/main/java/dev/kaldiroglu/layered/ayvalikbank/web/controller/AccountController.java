@@ -29,7 +29,9 @@ public class AccountController {
     public ResponseEntity<AccountResponse> createAccount(
             @RequestParam UUID ownerId,
             @Valid @RequestBody CreateAccountRequest request) {
-        var account = accountService.createAccount(ownerId, request.currency());
+        // Phase-1 stop-gap: old endpoint forwards to checking with no overdraft.
+        // Phase 2 will replace this with three typed endpoints (/checking, /savings, /time-deposit).
+        var account = accountService.createCheckingAccount(ownerId, request.currency(), java.math.BigDecimal.ZERO);
         return ResponseEntity.status(HttpStatus.CREATED).body(AccountResponse.from(account));
     }
 
