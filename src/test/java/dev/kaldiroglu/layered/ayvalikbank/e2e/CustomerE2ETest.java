@@ -1,6 +1,7 @@
 package dev.kaldiroglu.layered.ayvalikbank.e2e;
 
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
+import dev.kaldiroglu.layered.ayvalikbank.model.CustomerTier;
 import dev.kaldiroglu.layered.ayvalikbank.repository.AccountRepository;
 import dev.kaldiroglu.layered.ayvalikbank.repository.CustomerRepository;
 import dev.kaldiroglu.layered.ayvalikbank.repository.SettingsRepository;
@@ -47,6 +48,7 @@ class CustomerE2ETest {
         admin.setName("Admin");
         admin.setEmail("admin@ayvalikbank.dev");
         admin.setRole("ADMIN");
+        admin.setTier(CustomerTier.STANDARD);
         admin.setCurrentPassword(passwordEncoder.encode("Admin@123!"));
         customerRepository.save(admin);
 
@@ -77,6 +79,7 @@ class CustomerE2ETest {
         c.setName("ToDelete");
         c.setEmail("delete@test.com");
         c.setRole("CUSTOMER");
+        c.setTier(CustomerTier.STANDARD);
         c.setCurrentPassword(passwordEncoder.encode("Valid@123"));
         customerRepository.save(c);
 
@@ -94,6 +97,7 @@ class CustomerE2ETest {
         c.setName("Listed");
         c.setEmail("listed@test.com");
         c.setRole("CUSTOMER");
+        c.setTier(CustomerTier.STANDARD);
         c.setCurrentPassword(passwordEncoder.encode("Valid@123"));
         customerRepository.save(c);
 
@@ -116,6 +120,7 @@ class CustomerE2ETest {
         c.setName("Regular");
         c.setEmail("regular@test.com");
         c.setRole("CUSTOMER");
+        c.setTier(CustomerTier.STANDARD);
         c.setCurrentPassword(passwordEncoder.encode("Valid@123"));
         customerRepository.save(c);
 

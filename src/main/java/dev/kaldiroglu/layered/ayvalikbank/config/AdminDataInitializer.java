@@ -1,6 +1,7 @@
 package dev.kaldiroglu.layered.ayvalikbank.config;
 
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
+import dev.kaldiroglu.layered.ayvalikbank.model.CustomerTier;
 import dev.kaldiroglu.layered.ayvalikbank.repository.CustomerRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -29,6 +30,7 @@ public class AdminDataInitializer implements ApplicationRunner {
             admin.setName("Admin");
             admin.setEmail("admin@ayvalikbank.dev");
             admin.setRole("ADMIN");
+            admin.setTier(CustomerTier.STANDARD);
             admin.setCurrentPassword(passwordEncoder.encode("Admin@123!"));
             customerRepository.save(admin);
         }

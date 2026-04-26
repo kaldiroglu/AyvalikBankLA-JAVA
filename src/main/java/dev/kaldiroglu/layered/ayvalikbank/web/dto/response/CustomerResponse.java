@@ -4,8 +4,9 @@ import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
 
 import java.util.UUID;
 
-public record CustomerResponse(UUID id, String name, String email, String role) {
+public record CustomerResponse(UUID id, String name, String email, String role, String tier) {
     public static CustomerResponse from(Customer c) {
-        return new CustomerResponse(c.getId(), c.getName(), c.getEmail(), c.getRole());
+        return new CustomerResponse(c.getId(), c.getName(), c.getEmail(), c.getRole(),
+                c.getTier() == null ? null : c.getTier().name());
     }
 }

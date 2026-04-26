@@ -3,6 +3,7 @@ package dev.kaldiroglu.layered.ayvalikbank.web.controller;
 import dev.kaldiroglu.layered.ayvalikbank.service.AccountService;
 import dev.kaldiroglu.layered.ayvalikbank.service.CustomerService;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.AccrueInterestRequest;
+import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.ChangeCustomerTierRequest;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.CreateCustomerRequest;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.request.SetTransferFeeRequest;
 import dev.kaldiroglu.layered.ayvalikbank.web.dto.response.CustomerResponse;
@@ -46,6 +47,14 @@ public class AdminController {
         var list = customerService.listCustomers().stream()
                 .map(CustomerResponse::from).toList();
         return ResponseEntity.ok(list);
+    }
+
+    @PutMapping("/customers/{id}/tier")
+    public ResponseEntity<Void> changeCustomerTier(
+            @PathVariable UUID id,
+            @Valid @RequestBody ChangeCustomerTierRequest request) {
+        customerService.changeCustomerTier(id, request.tier());
+        return ResponseEntity.ok().build();
     }
 
     @PutMapping("/settings/transfer-fee")

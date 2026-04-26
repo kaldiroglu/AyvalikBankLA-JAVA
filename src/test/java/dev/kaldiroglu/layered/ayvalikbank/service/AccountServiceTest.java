@@ -55,6 +55,22 @@ class AccountServiceTest {
         return s;
     }
 
+    private Customer stubCustomerWithTier(UUID id, CustomerTier tier) {
+        Customer c = new Customer();
+        c.setId(id);
+        c.setName("Stub");
+        c.setEmail("stub@test.com");
+        c.setRole("CUSTOMER");
+        c.setTier(tier);
+        c.setCurrentPassword("hash");
+        return c;
+    }
+
+    private void stubOwner(UUID ownerId, CustomerTier tier) {
+        when(customerRepository.findById(ownerId))
+                .thenReturn(Optional.of(stubCustomerWithTier(ownerId, tier)));
+    }
+
     // ── createAccount ─────────────────────────────────────────────────────
 
     @Test
@@ -108,9 +124,11 @@ class AccountServiceTest {
 
     @Test
     void shouldThrowInsufficientFundsOnWithdrawExceedingBalance() {
-        Account account = makeAccount(UUID.randomUUID(), Currency.USD);
+        UUID ownerId = UUID.randomUUID();
+        Account account = makeAccount(ownerId, Currency.USD);
         account.setBalance(new BigDecimal("100"));
         when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+        stubOwner(ownerId, CustomerTier.STANDARD);
 
         assertThatThrownBy(() -> service.withdraw(account.getId(), new BigDecimal("500"), Currency.USD))
                 .isInstanceOf(InsufficientFundsException.class);
@@ -127,6 +145,7 @@ class AccountServiceTest {
 
         when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        stubOwner(ownerId, CustomerTier.STANDARD);
         when(settingsRepository.findById("TRANSFER_FEE_PERCENT"))
                 .thenReturn(Optional.of(makeSettings("1.0")));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -140,12 +159,14 @@ class AccountServiceTest {
 
     @Test
     void shouldDeductFeeForTransferBetweenDifferentCustomers() {
-        Account source = makeAccount(UUID.randomUUID(), Currency.USD);
+        UUID sourceOwner = UUID.randomUUID();
+        Account source = makeAccount(sourceOwner, Currency.USD);
         source.setBalance(new BigDecimal("1000"));
         Account target = makeAccount(UUID.randomUUID(), Currency.USD);
 
         when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        stubOwner(sourceOwner, CustomerTier.STANDARD);
         when(settingsRepository.findById("TRANSFER_FEE_PERCENT"))
                 .thenReturn(Optional.of(makeSettings("1.0")));
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -261,10 +282,12 @@ class AccountServiceTest {
 
     @Test
     void shouldAllowCheckingWithdrawIntoOverdraft() {
-        Account checking = makeAccount(UUID.randomUUID(), Currency.USD);
+        UUID ownerId = UUID.randomUUID();
+        Account checking = makeAccount(ownerId, Currency.USD);
         checking.setOverdraftLimit(new BigDecimal("100"));
         checking.setBalance(new BigDecimal("50"));
         when(accountRepository.findById(checking.getId())).thenReturn(Optional.of(checking));
+        stubOwner(ownerId, CustomerTier.STANDARD);
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -275,9 +298,11 @@ class AccountServiceTest {
 
     @Test
     void shouldRejectWithdrawBeyondCheckingOverdraftLimit() {
-        Account checking = makeAccount(UUID.randomUUID(), Currency.USD);
+        UUID ownerId = UUID.randomUUID();
+        Account checking = makeAccount(ownerId, Currency.USD);
         checking.setOverdraftLimit(new BigDecimal("50"));
         when(accountRepository.findById(checking.getId())).thenReturn(Optional.of(checking));
+        stubOwner(ownerId, CustomerTier.STANDARD);
 
         assertThatThrownBy(() -> service.withdraw(checking.getId(), new BigDecimal("60"), Currency.USD))
                 .isInstanceOf(InsufficientFundsException.class)
@@ -286,12 +311,14 @@ class AccountServiceTest {
 
     @Test
     void shouldRejectWithdrawOnUnmaturedTimeDeposit() {
-        Account td = makeAccount(UUID.randomUUID(), Currency.USD);
+        UUID ownerId = UUID.randomUUID();
+        Account td = makeAccount(ownerId, Currency.USD);
         td.setType(AccountType.TIME_DEPOSIT);
         td.setOverdraftLimit(null);
         td.setBalance(new BigDecimal("1000"));
         td.setMatured(false);
         when(accountRepository.findById(td.getId())).thenReturn(Optional.of(td));
+        stubOwner(ownerId, CustomerTier.STANDARD);
 
         assertThatThrownBy(() -> service.withdraw(td.getId(), new BigDecimal("100"), Currency.USD))
                 .isInstanceOf(AccountNotOperableException.class)
@@ -307,6 +334,7 @@ class AccountServiceTest {
         Account target = makeAccount(UUID.randomUUID(), Currency.USD);
         when(accountRepository.findById(td.getId())).thenReturn(Optional.of(td));
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        // Time-deposit rejection fires before owner-tier fetch — no stubOwner needed.
 
         assertThatThrownBy(() -> service.transfer(td.getId(), target.getId(),
                 new BigDecimal("100"), Currency.USD))
@@ -373,5 +401,58 @@ class AccountServiceTest {
         assertThatThrownBy(() -> service.matureTimeDeposit(checking.getId()))
                 .isInstanceOf(AccountNotOperableException.class)
                 .hasMessageContaining("time deposit");
+    }
+
+    // ── Customer-tier-aware fee and limits ────────────────────────────────
+
+    @Test
+    void shouldHalveFeeForPremiumSourceCustomer() {
+        UUID sourceOwner = UUID.randomUUID();
+        Account source = makeAccount(sourceOwner, Currency.USD);
+        source.setBalance(new BigDecimal("1000"));
+        Account target = makeAccount(UUID.randomUUID(), Currency.USD);
+
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        stubOwner(sourceOwner, CustomerTier.PREMIUM);
+        when(settingsRepository.findById("TRANSFER_FEE_PERCENT"))
+                .thenReturn(Optional.of(makeSettings("1.0")));
+        when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.transfer(source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
+
+        // 1% × 0.5 multiplier × 200 = 1.00 fee → source debited 201.00
+        assertThat(source.getBalance()).isEqualByComparingTo("799.00");
+    }
+
+    @Test
+    void shouldRejectTransferAboveStandardCap() {
+        UUID sourceOwner = UUID.randomUUID();
+        Account source = makeAccount(sourceOwner, Currency.USD);
+        source.setBalance(new BigDecimal("10000"));
+        Account target = makeAccount(UUID.randomUUID(), Currency.USD);
+
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+        stubOwner(sourceOwner, CustomerTier.STANDARD);
+
+        assertThatThrownBy(() -> service.transfer(source.getId(), target.getId(),
+                new BigDecimal("5001"), Currency.USD))
+                .isInstanceOf(LimitExceededException.class)
+                .hasMessageContaining("STANDARD");
+    }
+
+    @Test
+    void shouldRejectWithdrawAboveStandardCap() {
+        UUID ownerId = UUID.randomUUID();
+        Account account = makeAccount(ownerId, Currency.USD);
+        account.setBalance(new BigDecimal("10000"));
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+        stubOwner(ownerId, CustomerTier.STANDARD);
+
+        assertThatThrownBy(() -> service.withdraw(account.getId(), new BigDecimal("5001"), Currency.USD))
+                .isInstanceOf(LimitExceededException.class)
+                .hasMessageContaining("STANDARD");
     }
 }

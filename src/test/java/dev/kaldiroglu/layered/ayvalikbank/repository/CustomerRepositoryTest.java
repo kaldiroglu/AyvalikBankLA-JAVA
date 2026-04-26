@@ -1,6 +1,7 @@
 package dev.kaldiroglu.layered.ayvalikbank.repository;
 
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
+import dev.kaldiroglu.layered.ayvalikbank.model.CustomerTier;
 import dev.kaldiroglu.layered.ayvalikbank.model.PasswordHistory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +26,7 @@ class CustomerRepositoryTest {
         c.setName(name);
         c.setEmail(email);
         c.setRole("CUSTOMER");
+        c.setTier(CustomerTier.STANDARD);
         c.setCurrentPassword("hash");
         return c;
     }

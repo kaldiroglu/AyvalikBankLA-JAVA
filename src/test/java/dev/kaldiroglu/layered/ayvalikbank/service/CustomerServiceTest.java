@@ -2,6 +2,7 @@ package dev.kaldiroglu.layered.ayvalikbank.service;
 
 import dev.kaldiroglu.layered.ayvalikbank.exception.*;
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
+import dev.kaldiroglu.layered.ayvalikbank.model.CustomerTier;
 import dev.kaldiroglu.layered.ayvalikbank.model.PasswordHistory;
 import dev.kaldiroglu.layered.ayvalikbank.repository.CustomerRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -109,5 +110,38 @@ class CustomerServiceTest {
 
         assertThatThrownBy(() -> service.changePassword(id, "Valid@123"))
                 .isInstanceOf(PasswordReusedException.class);
+    }
+
+    @Test
+    void shouldDefaultNewCustomerToStandardTier() {
+        when(customerRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Customer created = service.createCustomer("Ali", "ali@test.com", "Valid@123");
+
+        assertThat(created.getTier()).isEqualTo(CustomerTier.STANDARD);
+    }
+
+    @Test
+    void shouldChangeCustomerTier() {
+        UUID id = UUID.randomUUID();
+        Customer customer = new Customer();
+        customer.setId(id);
+        customer.setTier(CustomerTier.STANDARD);
+        when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
+        when(customerRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.changeCustomerTier(id, CustomerTier.PREMIUM);
+
+        assertThat(customer.getTier()).isEqualTo(CustomerTier.PREMIUM);
+        verify(customerRepository).save(customer);
+    }
+
+    @Test
+    void shouldThrowCustomerNotFoundOnChangeTierForMissingCustomer() {
+        UUID id = UUID.randomUUID();
+        when(customerRepository.findById(id)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.changeCustomerTier(id, CustomerTier.PREMIUM))
+                .isInstanceOf(CustomerNotFoundException.class);
     }
 }

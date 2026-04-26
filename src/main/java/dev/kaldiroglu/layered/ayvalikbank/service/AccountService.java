@@ -124,6 +124,9 @@ public class AccountService {
         if (amount.signum() < 0)
             throw new IllegalArgumentException("Withdrawal amount cannot be negative");
 
+        Customer owner = findCustomerOrThrow(account.getOwnerId());
+        transferService.requireWithdrawalWithinLimit(amount, owner.getTier());
+
         // Time deposits: rejected until matured
         if (account.getType() == AccountType.TIME_DEPOSIT && !Boolean.TRUE.equals(account.getMatured()))
             throw new AccountNotOperableException("Time deposit has not matured");
@@ -163,9 +166,12 @@ public class AccountService {
         if (target.getCurrency() != currency)
             throw new IllegalArgumentException("Currency mismatch with target account");
 
+        Customer sourceOwner = findCustomerOrThrow(source.getOwnerId());
+        transferService.requireTransferWithinLimit(amount, sourceOwner.getTier());
+
         boolean sameCustomer = source.getOwnerId().equals(target.getOwnerId());
         BigDecimal feePercent = getFeePercent();
-        BigDecimal fee = transferService.calculateFee(amount, sameCustomer, feePercent);
+        BigDecimal fee = transferService.calculateFee(amount, sameCustomer, feePercent, sourceOwner.getTier());
         BigDecimal totalDebit = amount.add(fee);
         BigDecimal projected = source.getBalance().subtract(totalDebit);
 
@@ -312,6 +318,11 @@ public class AccountService {
     private Account findAccountOrThrow(UUID accountId) {
         return accountRepository.findById(accountId)
                 .orElseThrow(() -> new AccountNotFoundException("Account not found: " + accountId));
+    }
+
+    private Customer findCustomerOrThrow(UUID customerId) {
+        return customerRepository.findById(customerId)
+                .orElseThrow(() -> new CustomerNotFoundException("Customer not found: " + customerId));
     }
 
     private Transaction saveTransaction(UUID accountId, TransactionType type,

@@ -263,6 +263,42 @@ class AdminControllerTest {
 
     // ── PUT /api/admin/accounts/{id}/mature ──────────────────────────────
 
+    // ── PUT /api/admin/customers/{id}/tier ───────────────────────────────
+
+    @Test @WithMockUser(roles = "ADMIN")
+    void changeCustomerTier_returnsOk() throws Exception {
+        UUID id = UUID.randomUUID();
+        doNothing().when(customerService).changeCustomerTier(any(), any());
+
+        mockMvc.perform(put("/api/admin/customers/{id}/tier", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"tier":"PREMIUM"}
+                                """))
+                .andExpect(status().isOk());
+
+        verify(customerService).changeCustomerTier(any(), any());
+    }
+
+    @Test @WithMockUser(roles = "ADMIN")
+    void changeCustomerTier_returnsBadRequestOnMissingTier() throws Exception {
+        mockMvc.perform(put("/api/admin/customers/{id}/tier", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        verify(customerService, never()).changeCustomerTier(any(), any());
+    }
+
+    @Test @WithMockUser(roles = "CUSTOMER")
+    void changeCustomerTier_returnsForbiddenForCustomerRole() throws Exception {
+        mockMvc.perform(put("/api/admin/customers/{id}/tier", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"tier":"PRIVATE"}
+                                """))
+                .andExpect(status().isForbidden());
+    }
+
     @Test @WithMockUser(roles = "ADMIN")
     void matureTimeDeposit_returnsOk() throws Exception {
         UUID accountId = UUID.randomUUID();

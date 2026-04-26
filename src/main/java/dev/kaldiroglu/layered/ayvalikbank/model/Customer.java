@@ -22,6 +22,10 @@ public class Customer {
     @Column(nullable = false)
     private String role;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private CustomerTier tier;
+
     @Column(name = "current_password", nullable = false)
     private String currentPassword;
 
@@ -40,6 +44,8 @@ public class Customer {
     public void setEmail(String email) { this.email = email; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public CustomerTier getTier() { return tier; }
+    public void setTier(CustomerTier tier) { this.tier = tier; }
     public String getCurrentPassword() { return currentPassword; }
     public void setCurrentPassword(String currentPassword) { this.currentPassword = currentPassword; }
     public List<PasswordHistory> getPasswordHistory() { return passwordHistory; }

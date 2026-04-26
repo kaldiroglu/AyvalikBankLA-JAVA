@@ -47,6 +47,7 @@ class AccountE2ETest {
         admin.setName("Admin");
         admin.setEmail("admin@ayvalikbank.dev");
         admin.setRole("ADMIN");
+        admin.setTier(CustomerTier.STANDARD);
         admin.setCurrentPassword(passwordEncoder.encode("Admin@123!"));
         customerRepository.save(admin);
 
@@ -55,6 +56,7 @@ class AccountE2ETest {
         customer.setName("Alice");
         customer.setEmail("alice@test.com");
         customer.setRole("CUSTOMER");
+        customer.setTier(CustomerTier.STANDARD);
         customer.setCurrentPassword(passwordEncoder.encode("Valid@123"));
         customerRepository.save(customer);
 
@@ -144,6 +146,7 @@ class AccountE2ETest {
         other.setName("Bob");
         other.setEmail("bob@test.com");
         other.setRole("CUSTOMER");
+        other.setTier(CustomerTier.STANDARD);
         other.setCurrentPassword(passwordEncoder.encode("Valid@123"));
         customerRepository.save(other);
 

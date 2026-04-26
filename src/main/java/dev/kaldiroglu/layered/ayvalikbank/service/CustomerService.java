@@ -3,6 +3,7 @@ package dev.kaldiroglu.layered.ayvalikbank.service;
 import dev.kaldiroglu.layered.ayvalikbank.exception.CustomerNotFoundException;
 import dev.kaldiroglu.layered.ayvalikbank.exception.PasswordReusedException;
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
+import dev.kaldiroglu.layered.ayvalikbank.model.CustomerTier;
 import dev.kaldiroglu.layered.ayvalikbank.model.PasswordHistory;
 import dev.kaldiroglu.layered.ayvalikbank.repository.CustomerRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -38,8 +39,17 @@ public class CustomerService {
         customer.setName(name);
         customer.setEmail(email);
         customer.setRole("CUSTOMER");
+        customer.setTier(CustomerTier.STANDARD);
         customer.setCurrentPassword(passwordEncoder.encode(rawPassword));
         return customerRepository.save(customer);
+    }
+
+    public void changeCustomerTier(UUID customerId, CustomerTier newTier) {
+        if (newTier == null) throw new IllegalArgumentException("Tier must not be null");
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new CustomerNotFoundException("Customer not found: " + customerId));
+        customer.setTier(newTier);
+        customerRepository.save(customer);
     }
 
     public void deleteCustomer(UUID id) {
