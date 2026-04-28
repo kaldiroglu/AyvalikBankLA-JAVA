@@ -167,7 +167,7 @@ All tests are output tests (HTTP status + JSON body) combined with state asserti
 
 ## What Makes Testing Layered Architecture Different from HA1
 
-In AyvalikBankHA1, the service layer depends on port interfaces (`AccountRepositoryPort`, `CustomerRepositoryPort`, etc.). Test doubles are plain Java implementations of those interfaces — no mock framework required. The test controls the repository completely through ordinary polymorphism.
+In AyvalikBankHA-JAVA, the service layer depends on port interfaces (`AccountRepositoryPort`, `CustomerRepositoryPort`, etc.). Test doubles are plain Java implementations of those interfaces — no mock framework required. The test controls the repository completely through ordinary polymorphism.
 
 In LA1, there are no interfaces. `AccountService` takes `AccountRepository` (a Spring Data interface backed by JPA) in its constructor. To isolate the service from the database in a unit test, we must use **Mockito** to create a mock of the concrete Spring Data interface:
 

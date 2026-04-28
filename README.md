@@ -1,7 +1,7 @@
 # Ayvalık Bank LA-1
 
 A banking application built as a learning project to demonstrate **Classic 3-Tier Layered Architecture**.
-Companion project to AyvalikBankHA1 (Hexagonal Architecture) — identical use cases, same tech stack, different structure.
+Companion project to AyvalikBankHA-JAVA (Hexagonal Architecture) — identical use cases, same tech stack, different structure.
 
 ## Objective
 
@@ -34,7 +34,7 @@ Default admin: `admin@ayvalikbank.dev` / `Admin@123!`
 
 ## Domain
 
-Same domain as AyvalikBankHA1:
+Same domain as AyvalikBankHA-JAVA:
 - **Admin** — creates/deletes customers, sets transfer fee, changes customer tiers, freezes/unfreezes/closes accounts, accrues savings interest, matures time deposits
 - **Customer** — opens accounts (checking / savings / time deposit), deposits, withdraws, transfers, changes password
 

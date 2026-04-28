@@ -2,7 +2,7 @@
 
 ## Overview
 
-Ayvalık Bank LA-1 implements the same banking domain as AyvalikBankHA1 but uses **Classic 3-Tier Layered Architecture** instead of Hexagonal Architecture. The goal is a side-by-side comparison that makes the trade-offs of each style concrete and visible.
+Ayvalık Bank LA-1 implements the same banking domain as AyvalikBankHA-JAVA but uses **Classic 3-Tier Layered Architecture** instead of Hexagonal Architecture. The goal is a side-by-side comparison that makes the trade-offs of each style concrete and visible.
 
 Every anti-pattern described in this document is **intentional**. The project exists to show what a typical real-world Spring Boot codebase looks like when developers reach for the simplest path — and to contrast it with the deliberate isolation of Hexagonal Architecture.
 
@@ -141,7 +141,7 @@ This shape preserves the layered style. There is no rich `Customer.canTransfer(a
 
 ---
 
-## Contrast with AyvalikBankHA1
+## Contrast with AyvalikBankHA-JAVA
 
 | Concern | HA1 (Hexagonal) | LA1 (Layered) |
 |---------|-----------------|---------------|
@@ -197,4 +197,4 @@ Despite being labelled anti-patterns, these choices appear in the vast majority 
 
 **Tool and framework support.** IDEs, code generators, and many libraries assume the JPA entity is the central object. Spring's `@Valid` can validate a request body directly. Jackson can serialize an entity directly. These conveniences work without any additional structure.
 
-The cost appears later, as the application grows and requirements change. At that point, the tight coupling makes it difficult to test individual components in isolation, to replace infrastructure (e.g., switching from JPA to a document store), or to reuse business logic outside of the HTTP context. AyvalikBankHA1 demonstrates one way to pay that complexity cost upfront in exchange for a more maintainable long-term structure.
+The cost appears later, as the application grows and requirements change. At that point, the tight coupling makes it difficult to test individual components in isolation, to replace infrastructure (e.g., switching from JPA to a document store), or to reuse business logic outside of the HTTP context. AyvalikBankHA-JAVA demonstrates one way to pay that complexity cost upfront in exchange for a more maintainable long-term structure.
