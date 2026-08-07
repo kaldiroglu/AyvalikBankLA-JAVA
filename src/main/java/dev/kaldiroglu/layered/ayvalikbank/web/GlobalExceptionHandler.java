@@ -1,6 +1,7 @@
 package dev.kaldiroglu.layered.ayvalikbank.web;
 
 import dev.kaldiroglu.layered.ayvalikbank.exception.*;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -48,6 +49,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UnauthorizedAccessException.class)
     public ProblemDetail handleUnauthorized(UnauthorizedAccessException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    /**
+     * Two operations modified the same account concurrently and the second one lost.
+     *
+     * <p>Hibernate raises this at transaction commit - inside the @Transactional proxy and after
+     * the service method has already returned - so the service cannot catch it. The detail is
+     * fixed rather than ex.getMessage(), which names the entity class and primary key.
+     */
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ProblemDetail handleConcurrentModification(OptimisticLockingFailureException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "The account was modified by another operation. Please retry.");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

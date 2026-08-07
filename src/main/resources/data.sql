@@ -6,6 +6,7 @@ ON CONFLICT (key) DO NOTHING;
 -- can't add to populated tables. ADD COLUMN with DEFAULT atomically backfills
 -- existing rows and applies the NOT NULL constraint going forward.
 ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS type            varchar(16)   NOT NULL DEFAULT 'CHECKING';
+ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS version         bigint        NOT NULL DEFAULT 0;
 ALTER TABLE accounts  ADD COLUMN IF NOT EXISTS overdraft_limit numeric(19,2);
 ALTER TABLE customers ADD COLUMN IF NOT EXISTS tier            varchar(16)   NOT NULL DEFAULT 'STANDARD';
 

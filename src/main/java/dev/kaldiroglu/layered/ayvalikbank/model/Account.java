@@ -13,6 +13,17 @@ public class Account {
     @Column(nullable = false, updatable = false)
     private UUID id;
 
+    /**
+     * Optimistic-lock token, managed entirely by Hibernate.
+     *
+     * <p>Without it two concurrent withdrawals both read the same balance, both write their own
+     * result, and one silently disappears while both Transaction rows persist - leaving the
+     * balance disagreeing with the ledger. Mirrors AyvalikBankHA-JAVA Refactorings.md entry 5.
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version;
+
     @Column(name = "owner_id", nullable = false)
     private UUID ownerId;
 
@@ -59,6 +70,9 @@ public class Account {
 
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
+
     public UUID getOwnerId() { return ownerId; }
     public void setOwnerId(UUID ownerId) { this.ownerId = ownerId; }
     public Currency getCurrency() { return currency; }
