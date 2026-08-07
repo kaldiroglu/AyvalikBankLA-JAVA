@@ -24,24 +24,28 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(SecurityConfig.class)
 class CustomerControllerTest {
 
+    static final String CALLER_ID = "11111111-1111-1111-1111-111111111111";
+    static final java.util.UUID CALLER = java.util.UUID.fromString(CALLER_ID);
+    static final String OTHER_CUSTOMER_ID = "22222222-2222-2222-2222-222222222222";
+
     @Autowired MockMvc mockMvc;
 
     @MockitoBean BankUserDetailsService userDetailsService;
     @MockitoBean CustomerService customerService;
 
-    @Test @WithMockUser(roles = "CUSTOMER")
+    @Test @WithBankUser(customerId = CALLER_ID)
     void changePassword_returnsOk() throws Exception {
-        doNothing().when(customerService).changePassword(any(), any());
+        doNothing().when(customerService).changePassword(any(), any(), any());
         mockMvc.perform(put("/api/customers/{id}/password", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"newPassword":"Valid@123"}
                                 """))
                 .andExpect(status().isOk());
-        verify(customerService).changePassword(any(), any());
+        verify(customerService).changePassword(any(), any(), any());
     }
 
-    @Test @WithMockUser(roles = "CUSTOMER")
+    @Test @WithBankUser(customerId = CALLER_ID)
     void changePassword_returnsBadRequestOnBlankPassword() throws Exception {
         mockMvc.perform(put("/api/customers/{id}/password", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -52,10 +56,10 @@ class CustomerControllerTest {
         verifyNoInteractions(customerService);
     }
 
-    @Test @WithMockUser(roles = "CUSTOMER")
+    @Test @WithBankUser(customerId = CALLER_ID)
     void changePassword_returnsBadRequestOnWeakPassword() throws Exception {
         doThrow(new InvalidPasswordException("Password must contain uppercase"))
-                .when(customerService).changePassword(any(), any());
+                .when(customerService).changePassword(any(), any(), any());
         mockMvc.perform(put("/api/customers/{id}/password", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -64,10 +68,10 @@ class CustomerControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
-    @Test @WithMockUser(roles = "CUSTOMER")
+    @Test @WithBankUser(customerId = CALLER_ID)
     void changePassword_returnsConflictOnPasswordReuse() throws Exception {
         doThrow(new PasswordReusedException("Password has been used recently"))
-                .when(customerService).changePassword(any(), any());
+                .when(customerService).changePassword(any(), any(), any());
         mockMvc.perform(put("/api/customers/{id}/password", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -76,10 +80,10 @@ class CustomerControllerTest {
                 .andExpect(status().isConflict());
     }
 
-    @Test @WithMockUser(roles = "CUSTOMER")
+    @Test @WithBankUser(customerId = CALLER_ID)
     void changePassword_returnsNotFoundForUnknownCustomer() throws Exception {
         doThrow(new CustomerNotFoundException("Customer not found"))
-                .when(customerService).changePassword(any(), any());
+                .when(customerService).changePassword(any(), any(), any());
         mockMvc.perform(put("/api/customers/{id}/password", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""

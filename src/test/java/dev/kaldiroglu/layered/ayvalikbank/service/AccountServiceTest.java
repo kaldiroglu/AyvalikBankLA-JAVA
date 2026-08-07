@@ -105,7 +105,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        Transaction tx = service.deposit(account.getId(), new BigDecimal("200"), Currency.USD);
+        Transaction tx = service.deposit(account.getOwnerId(), account.getId(), new BigDecimal("200"), Currency.USD);
 
         assertThat(tx.getType()).isEqualTo(TransactionType.DEPOSIT);
         assertThat(account.getBalance()).isEqualByComparingTo("200.00");
@@ -116,7 +116,7 @@ class AccountServiceTest {
         UUID id = UUID.randomUUID();
         when(accountRepository.findById(id)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.deposit(id, new BigDecimal("100"), Currency.USD))
+        assertThatThrownBy(() -> service.deposit(UUID.randomUUID(), id, new BigDecimal("100"), Currency.USD))
                 .isInstanceOf(AccountNotFoundException.class);
     }
 
@@ -130,7 +130,7 @@ class AccountServiceTest {
         when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
         stubOwner(ownerId, CustomerTier.STANDARD);
 
-        assertThatThrownBy(() -> service.withdraw(account.getId(), new BigDecimal("500"), Currency.USD))
+        assertThatThrownBy(() -> service.withdraw(account.getOwnerId(), account.getId(), new BigDecimal("500"), Currency.USD))
                 .isInstanceOf(InsufficientFundsException.class);
     }
 
@@ -151,7 +151,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.transfer(source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
+        service.transfer(source.getOwnerId(), source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
 
         assertThat(source.getBalance()).isEqualByComparingTo("300.00");
         assertThat(target.getBalance()).isEqualByComparingTo("200.00");
@@ -172,7 +172,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.transfer(source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
+        service.transfer(source.getOwnerId(), source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
 
         assertThat(source.getBalance()).isEqualByComparingTo("798.00");
         assertThat(target.getBalance()).isEqualByComparingTo("200.00");
@@ -275,7 +275,7 @@ class AccountServiceTest {
         td.setBalance(new BigDecimal("1000"));
         when(accountRepository.findById(td.getId())).thenReturn(Optional.of(td));
 
-        assertThatThrownBy(() -> service.deposit(td.getId(), new BigDecimal("100"), Currency.USD))
+        assertThatThrownBy(() -> service.deposit(td.getOwnerId(), td.getId(), new BigDecimal("100"), Currency.USD))
                 .isInstanceOf(AccountNotOperableException.class)
                 .hasMessageContaining("locked");
     }
@@ -291,7 +291,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.withdraw(checking.getId(), new BigDecimal("120"), Currency.USD);
+        service.withdraw(checking.getOwnerId(), checking.getId(), new BigDecimal("120"), Currency.USD);
 
         assertThat(checking.getBalance()).isEqualByComparingTo("-70.00");
     }
@@ -304,7 +304,7 @@ class AccountServiceTest {
         when(accountRepository.findById(checking.getId())).thenReturn(Optional.of(checking));
         stubOwner(ownerId, CustomerTier.STANDARD);
 
-        assertThatThrownBy(() -> service.withdraw(checking.getId(), new BigDecimal("60"), Currency.USD))
+        assertThatThrownBy(() -> service.withdraw(checking.getOwnerId(), checking.getId(), new BigDecimal("60"), Currency.USD))
                 .isInstanceOf(InsufficientFundsException.class)
                 .hasMessageContaining("overdraft");
     }
@@ -320,7 +320,7 @@ class AccountServiceTest {
         when(accountRepository.findById(td.getId())).thenReturn(Optional.of(td));
         stubOwner(ownerId, CustomerTier.STANDARD);
 
-        assertThatThrownBy(() -> service.withdraw(td.getId(), new BigDecimal("100"), Currency.USD))
+        assertThatThrownBy(() -> service.withdraw(td.getOwnerId(), td.getId(), new BigDecimal("100"), Currency.USD))
                 .isInstanceOf(AccountNotOperableException.class)
                 .hasMessageContaining("matured");
     }
@@ -336,7 +336,7 @@ class AccountServiceTest {
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
         // Time-deposit rejection fires before owner-tier fetch — no stubOwner needed.
 
-        assertThatThrownBy(() -> service.transfer(td.getId(), target.getId(),
+        assertThatThrownBy(() -> service.transfer(td.getOwnerId(), td.getId(), target.getId(),
                 new BigDecimal("100"), Currency.USD))
                 .isInstanceOf(AccountNotOperableException.class)
                 .hasMessageContaining("transfers");
@@ -420,7 +420,7 @@ class AccountServiceTest {
         when(accountRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(transactionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.transfer(source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
+        service.transfer(source.getOwnerId(), source.getId(), target.getId(), new BigDecimal("200"), Currency.USD);
 
         // 1% × 0.5 multiplier × 200 = 1.00 fee → source debited 201.00
         assertThat(source.getBalance()).isEqualByComparingTo("799.00");
@@ -437,7 +437,7 @@ class AccountServiceTest {
         when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
         stubOwner(sourceOwner, CustomerTier.STANDARD);
 
-        assertThatThrownBy(() -> service.transfer(source.getId(), target.getId(),
+        assertThatThrownBy(() -> service.transfer(source.getOwnerId(), source.getId(), target.getId(),
                 new BigDecimal("5001"), Currency.USD))
                 .isInstanceOf(LimitExceededException.class)
                 .hasMessageContaining("STANDARD");
@@ -451,8 +451,77 @@ class AccountServiceTest {
         when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
         stubOwner(ownerId, CustomerTier.STANDARD);
 
-        assertThatThrownBy(() -> service.withdraw(account.getId(), new BigDecimal("5001"), Currency.USD))
+        assertThatThrownBy(() -> service.withdraw(account.getOwnerId(), account.getId(), new BigDecimal("5001"), Currency.USD))
                 .isInstanceOf(LimitExceededException.class)
                 .hasMessageContaining("STANDARD");
+    }
+
+    // ── ownership authorization ───────────────────────────────────────────
+    // Any authenticated customer could previously operate on any account given its id.
+    // Mirrors AyvalikBankHA-JAVA Refactorings.md entry 3.
+
+    @Test
+    void shouldRejectDepositIntoAnotherCustomersAccount() {
+        Account account = makeAccount(UUID.randomUUID(), Currency.USD);
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.deposit(
+                UUID.randomUUID(), account.getId(), new BigDecimal("100"), Currency.USD))
+                .isInstanceOf(UnauthorizedAccessException.class);
+
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectWithdrawalFromAnotherCustomersAccount() {
+        Account account = makeAccount(UUID.randomUUID(), Currency.USD);
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.withdraw(
+                UUID.randomUUID(), account.getId(), new BigDecimal("10"), Currency.USD))
+                .isInstanceOf(UnauthorizedAccessException.class);
+
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectTransferFromAnotherCustomersAccount() {
+        UUID intruder = UUID.randomUUID();
+        Account source = makeAccount(UUID.randomUUID(), Currency.USD);
+        Account target = makeAccount(intruder, Currency.USD);
+        when(accountRepository.findById(source.getId())).thenReturn(Optional.of(source));
+        when(accountRepository.findById(target.getId())).thenReturn(Optional.of(target));
+
+        assertThatThrownBy(() -> service.transfer(
+                intruder, source.getId(), target.getId(), new BigDecimal("10"), Currency.USD))
+                .isInstanceOf(UnauthorizedAccessException.class);
+
+        verify(accountRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldRejectReadingAnotherCustomersAccount() {
+        Account account = makeAccount(UUID.randomUUID(), Currency.USD);
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.getAccount(UUID.randomUUID(), account.getId()))
+                .isInstanceOf(UnauthorizedAccessException.class);
+    }
+
+    @Test
+    void shouldRejectReadingAnotherCustomersTransactions() {
+        Account account = makeAccount(UUID.randomUUID(), Currency.USD);
+        when(accountRepository.findById(account.getId())).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> service.getTransactions(UUID.randomUUID(), account.getId()))
+                .isInstanceOf(UnauthorizedAccessException.class);
+    }
+
+    @Test
+    void shouldRejectListingAnotherCustomersAccounts() {
+        assertThatThrownBy(() -> service.listAccounts(UUID.randomUUID(), UUID.randomUUID()))
+                .isInstanceOf(UnauthorizedAccessException.class);
+
+        verifyNoInteractions(accountRepository);
     }
 }

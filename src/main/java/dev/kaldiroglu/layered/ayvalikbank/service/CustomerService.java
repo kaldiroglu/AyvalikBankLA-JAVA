@@ -1,6 +1,7 @@
 package dev.kaldiroglu.layered.ayvalikbank.service;
 
 import dev.kaldiroglu.layered.ayvalikbank.exception.CustomerNotFoundException;
+import dev.kaldiroglu.layered.ayvalikbank.exception.UnauthorizedAccessException;
 import dev.kaldiroglu.layered.ayvalikbank.exception.PasswordReusedException;
 import dev.kaldiroglu.layered.ayvalikbank.model.Customer;
 import dev.kaldiroglu.layered.ayvalikbank.model.CustomerTier;
@@ -63,7 +64,11 @@ public class CustomerService {
         return customerRepository.findAll();
     }
 
-    public void changePassword(UUID customerId, String rawNewPassword) {
+    public void changePassword(UUID callerId, UUID customerId, String rawNewPassword) {
+        // Checked BEFORE the lookup so a caller cannot probe which customer ids exist by
+        // distinguishing 404 from 403.
+        if (!customerId.equals(callerId))
+            throw new UnauthorizedAccessException("Callers may only change their own password");
         passwordValidationService.validate(rawNewPassword);
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new CustomerNotFoundException("Customer not found: " + customerId));

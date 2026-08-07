@@ -41,15 +41,15 @@ public class AccountService {
 
     // ── Account opening (one method per type) ─────────────────────────────
 
-    public Account createCheckingAccount(UUID ownerId, Currency currency, BigDecimal overdraftLimit) {
-        if (!customerRepository.existsById(ownerId))
-            throw new CustomerNotFoundException("Customer not found: " + ownerId);
+    public Account createCheckingAccount(UUID callerId, Currency currency, BigDecimal overdraftLimit) {
+        if (!customerRepository.existsById(callerId))
+            throw new CustomerNotFoundException("Customer not found: " + callerId);
         if (overdraftLimit == null) overdraftLimit = BigDecimal.ZERO;
         if (overdraftLimit.signum() < 0)
             throw new IllegalArgumentException("Overdraft limit cannot be negative");
         Account account = new Account();
         account.setId(UUID.randomUUID());
-        account.setOwnerId(ownerId);
+        account.setOwnerId(callerId);
         account.setCurrency(currency);
         account.setBalance(BigDecimal.ZERO);
         account.setStatus(AccountStatus.ACTIVE);
@@ -58,14 +58,14 @@ public class AccountService {
         return accountRepository.save(account);
     }
 
-    public Account createSavingsAccount(UUID ownerId, Currency currency, BigDecimal annualInterestRate) {
-        if (!customerRepository.existsById(ownerId))
-            throw new CustomerNotFoundException("Customer not found: " + ownerId);
+    public Account createSavingsAccount(UUID callerId, Currency currency, BigDecimal annualInterestRate) {
+        if (!customerRepository.existsById(callerId))
+            throw new CustomerNotFoundException("Customer not found: " + callerId);
         if (annualInterestRate == null || annualInterestRate.signum() < 0)
             throw new IllegalArgumentException("Annual interest rate must be non-negative");
         Account account = new Account();
         account.setId(UUID.randomUUID());
-        account.setOwnerId(ownerId);
+        account.setOwnerId(callerId);
         account.setCurrency(currency);
         account.setBalance(BigDecimal.ZERO);
         account.setStatus(AccountStatus.ACTIVE);
@@ -74,10 +74,10 @@ public class AccountService {
         return accountRepository.save(account);
     }
 
-    public Account createTimeDepositAccount(UUID ownerId, Currency currency, BigDecimal principal,
+    public Account createTimeDepositAccount(UUID callerId, Currency currency, BigDecimal principal,
                                             LocalDate maturityDate, BigDecimal annualInterestRate) {
-        if (!customerRepository.existsById(ownerId))
-            throw new CustomerNotFoundException("Customer not found: " + ownerId);
+        if (!customerRepository.existsById(callerId))
+            throw new CustomerNotFoundException("Customer not found: " + callerId);
         if (principal == null || principal.signum() <= 0)
             throw new IllegalArgumentException("Principal must be positive");
         if (annualInterestRate == null || annualInterestRate.signum() < 0)
@@ -87,7 +87,7 @@ public class AccountService {
             throw new IllegalArgumentException("Maturity date must be after today");
         Account account = new Account();
         account.setId(UUID.randomUUID());
-        account.setOwnerId(ownerId);
+        account.setOwnerId(callerId);
         account.setCurrency(currency);
         account.setBalance(principal);
         account.setStatus(AccountStatus.ACTIVE);
@@ -102,8 +102,9 @@ public class AccountService {
 
     // ── Account operations ────────────────────────────────────────────────
 
-    public Transaction deposit(UUID accountId, BigDecimal amount, Currency currency) {
+    public Transaction deposit(UUID callerId, UUID accountId, BigDecimal amount, Currency currency) {
         Account account = findAccountOrThrow(accountId);
+        requireOwner(account, callerId);
         requireActive(account);
         if (account.getType() == AccountType.TIME_DEPOSIT)
             throw new AccountNotOperableException("Time deposit principal is locked — further deposits are not allowed");
@@ -116,8 +117,9 @@ public class AccountService {
         return saveTransaction(accountId, TransactionType.DEPOSIT, amount, currency, "Deposit");
     }
 
-    public Transaction withdraw(UUID accountId, BigDecimal amount, Currency currency) {
+    public Transaction withdraw(UUID callerId, UUID accountId, BigDecimal amount, Currency currency) {
         Account account = findAccountOrThrow(accountId);
+        requireOwner(account, callerId);
         requireActive(account);
         if (account.getCurrency() != currency)
             throw new IllegalArgumentException("Currency mismatch: expected " + account.getCurrency());
@@ -154,9 +156,12 @@ public class AccountService {
         return saveTransaction(accountId, TransactionType.WITHDRAWAL, amount, currency, "Withdrawal");
     }
 
-    public void transfer(UUID sourceId, UUID targetId, BigDecimal amount, Currency currency) {
+    public void transfer(UUID callerId, UUID sourceId, UUID targetId, BigDecimal amount, Currency currency) {
         Account source = findAccountOrThrow(sourceId);
         Account target = findAccountOrThrow(targetId);
+        requireOwner(source, callerId);
+        // The TARGET is deliberately NOT ownership-checked: sending money to another
+        // customer is the entire point of a transfer.
         requireActive(source);
         requireActive(target);
         if (source.getType() == AccountType.TIME_DEPOSIT)
@@ -256,21 +261,41 @@ public class AccountService {
     // ── Read-only queries ─────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
-    public Account getAccount(UUID accountId) {
-        return findAccountOrThrow(accountId);
+    public Account getAccount(UUID callerId, UUID accountId) {
+        Account account = findAccountOrThrow(accountId);
+        requireOwner(account, callerId);
+        return account;
     }
 
     @Transactional(readOnly = true)
-    public List<Transaction> getTransactions(UUID accountId) {
-        findAccountOrThrow(accountId);
+    public List<Transaction> getTransactions(UUID callerId, UUID accountId) {
+        requireOwner(findAccountOrThrow(accountId), callerId);
         return transactionRepository.findByAccountId(accountId);
     }
 
     @Transactional(readOnly = true)
-    public List<Account> listAccounts(UUID ownerId) {
+    public List<Account> listAccounts(UUID callerId, UUID ownerId) {
+        requireSelf(ownerId, callerId);
         if (!customerRepository.existsById(ownerId))
             throw new CustomerNotFoundException("Customer not found: " + ownerId);
         return accountRepository.findByOwnerId(ownerId);
+    }
+
+    // ── Authorization ─────────────────────────────────────────────────────
+
+    /**
+     * The caller must own the account. Mirrors AyvalikBankHA-JAVA Refactorings.md entry 3.
+     * The message names neither the account nor its owner — an error response is not the place
+     * to confirm which accounts exist.
+     */
+    private void requireOwner(Account account, UUID callerId) {
+        if (!account.getOwnerId().equals(callerId))
+            throw new UnauthorizedAccessException("Account does not belong to the caller");
+    }
+
+    private void requireSelf(UUID subject, UUID callerId) {
+        if (!subject.equals(callerId))
+            throw new UnauthorizedAccessException("Callers may only act on their own customer record");
     }
 
     // ── Status transitions ────────────────────────────────────────────────

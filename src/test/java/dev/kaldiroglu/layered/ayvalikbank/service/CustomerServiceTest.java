@@ -90,7 +90,7 @@ class CustomerServiceTest {
         when(passwordEncoder.encode("Valid@123")).thenReturn("new-hash");
         when(customerRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.changePassword(id, "Valid@123");
+        service.changePassword(id, id, "Valid@123");
 
         assertThat(customer.getCurrentPassword()).isEqualTo("new-hash");
         assertThat(customer.getPasswordHistory()).hasSize(1);
@@ -108,7 +108,7 @@ class CustomerServiceTest {
         when(customerRepository.findById(id)).thenReturn(Optional.of(customer));
         when(passwordEncoder.matches("Valid@123", "same-hash")).thenReturn(true);
 
-        assertThatThrownBy(() -> service.changePassword(id, "Valid@123"))
+        assertThatThrownBy(() -> service.changePassword(id, id, "Valid@123"))
                 .isInstanceOf(PasswordReusedException.class);
     }
 
@@ -143,5 +143,14 @@ class CustomerServiceTest {
 
         assertThatThrownBy(() -> service.changeCustomerTier(id, CustomerTier.PREMIUM))
                 .isInstanceOf(CustomerNotFoundException.class);
+    }
+
+    @Test
+    void shouldRejectChangingAnotherCustomersPassword() {
+        assertThatThrownBy(() -> service.changePassword(
+                UUID.randomUUID(), UUID.randomUUID(), "NewPass@123!"))
+                .isInstanceOf(UnauthorizedAccessException.class);
+
+        verifyNoInteractions(customerRepository);
     }
 }

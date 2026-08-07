@@ -23,7 +23,8 @@ public class BankUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         var customer = customerRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found: " + email));
-        return new User(
+        return new BankUserPrincipal(
+                customer.getId(),
                 customer.getEmail(),
                 customer.getCurrentPassword(),
                 List.of(new SimpleGrantedAuthority("ROLE_" + customer.getRole())));
