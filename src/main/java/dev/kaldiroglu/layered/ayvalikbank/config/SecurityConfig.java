@@ -32,6 +32,9 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // Browsable API docs. Public on purpose: this is teaching material, and the
+                // endpoints it documents are still individually authenticated.
+                .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers("/api/customers/**").hasRole("CUSTOMER")
                 .requestMatchers("/api/accounts/**").hasRole("CUSTOMER")
