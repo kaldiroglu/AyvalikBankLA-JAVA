@@ -60,3 +60,28 @@ Three account types are supported, each with its own behavior (handled by `if/el
 | [Architecture.md](Architecture.md) | Layer-by-layer breakdown and contrast with HA1 |
 | [Flows.md](Flows.md) | Sequence diagrams for each use case |
 | [Tests.md](Tests.md) | Test pyramid, per-class test tables, testing style analysis |
+
+## Ports across the six repos
+
+The six Ayvalık Bank implementations are meant to be compared side by side, so every one
+publishes PostgreSQL on its own host port.
+
+| Repo | App | PostgreSQL | Database |
+|---|---|---|---|
+| `AyvalikBankHA-JAVA` | 8080 | **5437** | `ayvalikbank_ha_java` |
+| `AyvalikBankLA-JAVA` | 8080 | **5438** | `ayvalikbank_la_java` |
+| `AyvalikBankHA-NET` | 5080 | **5434** | `ayvalikbank_ha_net` |
+| `AyvalikBankLA-NET` | 5050 | **5433** | `ayvalikbank_la_net` |
+| `AyvalikBankHA-Python` | 8000 | **5436** | `ayvalikbank` |
+| `AyvalikBankLA-Python` | 8000 | **5435** | `ayvalikbank` |
+
+- **PostgreSQL ports are all distinct**, so all six databases can run at the same time.
+  **5432 is deliberately left free** for a native PostgreSQL install (Postgres.app, Homebrew) —
+  a container bound to it would collide, and an application pointed at it would silently
+  connect to the native server instead of its own container.
+- **Application ports are not all distinct.** Repos sharing a language fall back to the same
+  framework default — 8080 for Spring Boot, 8000 for uvicorn. To run two of the same language
+  at once, pass an explicit port: `--server.port=8081`, `--port 8001`, or
+  `--urls http://localhost:5081`.
+- `AyvalikBankHA-NET` has no `launchSettings.json`, so 5080 is the convention used in these
+  docs and must be passed with `--urls`. Without it Kestrel binds its own default, 5000.
