@@ -8,3 +8,6 @@ target/
 .claude/
 Prompt.txt
 docs/superpowers/
+
+# Keynote sources — the exported .md files are what belong in the repo
+*.key
