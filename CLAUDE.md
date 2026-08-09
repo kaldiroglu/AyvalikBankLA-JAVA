@@ -24,7 +24,7 @@ the change belongs in all six.
 ```bash
 # Browsable API docs once the app is running: /swagger-ui.html
 # Shared contract suite (from AyvalikBankContractTests):
-#   BANK_BASE_URL=http://localhost:8080 pytest tests/
+#   BANK_BASE_URL=http://localhost:8081 pytest tests/
 
 # Start local PostgreSQL
 docker compose up -d                 # PostgreSQL on host port 5438, database ayvalikbank_la_java
