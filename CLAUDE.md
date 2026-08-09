@@ -8,9 +8,24 @@ Always work in smaller pieces when developing code.
 
 **Ayvalık Bank LA-1** — a layered-architecture banking application in Java 21 / Spring Boot 3.4.
 
+## Cross-repository invariants
+
+This repo is one of six (hexagonal + layered × Java/.NET/Python) that must stay **functionally
+identical**. `AyvalikBankContractTests` is one black-box HTTP suite run against all six, and CI runs
+it on every push. Before changing any endpoint, status code, field name or JSON shape, check whether
+the change belongs in all six.
+
+- Wire format is **camelCase**; validation failures are **400** (not FastAPI's default 422).
+- Enums travel as **strings** (`"USD"`), never numbers.
+- Refactoring write-ups live in `Refactorings.md`; the Java hexagonal repo is the reference.
+
 ## Commands
 
 ```bash
+# Browsable API docs once the app is running: /swagger-ui.html
+# Shared contract suite (from AyvalikBankContractTests):
+#   BANK_BASE_URL=http://localhost:8080 pytest tests/
+
 # Start local PostgreSQL
 docker compose up -d
 
@@ -22,7 +37,21 @@ mvn test -Dtest=AccountServiceTest
 
 # Run the application
 mvn spring-boot:run
+
+# Run without Docker (H2 in memory) — see Environment gotchas for why each flag is needed
+mvn spring-boot:run -Dspring-boot.run.useTestClasspath=true \
+  -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:h2:mem:bank;MODE=PostgreSQL;NON_KEYWORDS=KEY,VALUE \
+  --spring.datasource.driver-class-name=org.h2.Driver --spring.jpa.hibernate.ddl-auto=create-drop \
+  --spring.sql.init.mode=never"
 ```
+
+## Environment gotchas
+
+- **Running without Docker:** H2 is a *test-scoped* dependency, so `spring-boot:run` needs
+  `-Dspring-boot.run.useTestClasspath=true` or startup fails with `Cannot load driver class:
+  org.h2.Driver`. `data.sql` is PostgreSQL-specific — use `--spring.sql.init.mode=never` and let
+  Hibernate create the schema; the admin is seeded in code.
+- **Docker Desktop** stops on its own; if compose fails with a socket error, `open -a Docker` and wait.
 
 ## Architecture
 
@@ -76,6 +105,12 @@ config/              → SecurityConfig, BankUserDetailsService, AdminDataInitia
 | POST | `/api/accounts/{id}/withdraw` | CUSTOMER | Withdraw |
 | POST | `/api/accounts/{id}/transfer` | CUSTOMER | Transfer to another account |
 | GET | `/api/accounts/{id}/transactions` | CUSTOMER | Transaction history |
+
+## Design Decisions (2026-08 hardening pass)
+
+- **Ownership authorization**: every customer-facing service method takes the caller's id, taken from the authenticated principal — never from a route or query parameter. Transfers check the **source only**; the target is deliberately unchecked. Opening an account takes no owner id: the caller is the owner. See `Refactorings.md`.
+- **Optimistic locking**: accounts carry a version token. A conflict surfaces at commit and maps to HTTP 409.
+- **Three hexagonal refactorings deliberately do not apply here** — `TransactionAmount` (no `Money` value object), actor-shaped ports (layered has no ports) and the domain refusal vocabulary (no domain/application seam to translate across). They are artifacts of the hexagonal boundary; see `Refactorings.md`.
 
 ## Default Admin
 

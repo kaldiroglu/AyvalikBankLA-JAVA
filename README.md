@@ -3,6 +3,8 @@
 A banking application built as a learning project to demonstrate **Classic 3-Tier Layered Architecture**.
 Companion project to AyvalikBankHA-JAVA (Hexagonal Architecture) — identical use cases, same tech stack, different structure.
 
+For further enquiry please contact Akin Kaldiroglu at akin@kaldiroglu.dev
+
 ## Objective
 
 Show how the same banking domain looks when built with layered architecture instead of hexagonal architecture.
@@ -29,6 +31,7 @@ docker compose up -d
 mvn clean verify
 mvn spring-boot:run
 ```
+It runs at http://localhost:8080/ 
 
 Default admin: `admin@ayvalikbank.dev` / `Admin@123!`
 
