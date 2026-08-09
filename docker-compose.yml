@@ -1,12 +1,16 @@
 services:
   postgres:
     image: postgres:16
+    container_name: ayvalikbank-la-java-postgres
     environment:
-      POSTGRES_DB: ayvalikbank
+      POSTGRES_DB: ayvalikbank_la_java
       POSTGRES_USER: bankuser
       POSTGRES_PASSWORD: bankpass
+    # Host port 5438, not 5432. Each of the six repos publishes on its own port so
+    # they can run side by side, and 5432 is commonly taken by a native PostgreSQL
+    # (Postgres.app, Homebrew) that this container would otherwise collide with.
     ports:
-      - "5432:5432"
+      - "5438:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

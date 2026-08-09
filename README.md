@@ -27,7 +27,7 @@ repositories directly, JPA entities used as domain objects throughout all layers
 ## Quick Start
 
 ```bash
-docker compose up -d
+docker compose up -d                 # PostgreSQL on host port 5438, database ayvalikbank_la_java
 mvn clean verify
 mvn spring-boot:run
 ```
